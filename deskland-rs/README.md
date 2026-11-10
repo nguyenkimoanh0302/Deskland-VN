@@ -12,14 +12,22 @@ target/release/deskland-rs.exe --quit             # thoát (hoặc chuột phả
 target/release/deskland-rs.exe --snapshot <thư mục>  # lưu BMP khung hình từ GPU sau 4 giây
 ```
 
-Cài đặt lưu ở `~/.deskland-rs/settings.json` (chủ đề, `seed` + thông số từng chủ đề, `lockSyncWin`, `lockIdleMins`).
+Cài đặt lưu ở `~/.deskland-rs/settings.json` (chủ đề, `seed` + thông số từng chủ đề, `lockSyncWin`, `lockIdleMins`, `lang`).
 Lần đầu chưa có file này thì đọc của bản C# (`%LOCALAPPDATA%\DesklandPreview\settings.json`), không ghi đè file của bản C#.
 
-**Cửa sổ Cài đặt**: bấm chuột trái icon khay (hoặc chuột phải > Cài đặt…, hoặc `deskland-rs.exe --settings`).
-Dùng control gốc Win32 (không WebView2): đổi chủ đề, Đổi cảnh (seed mới), thanh trượt thông số giống bảng của bản web
-(áp dụng khi thả chuột), Đặt lại mặc định, Khóa máy ngay, Khóa với cảnh động, cảnh động khi rảnh + số phút, ảnh màn khóa,
-Khởi động cùng Windows (`HKCU\...\Run\DesklandRs`). Mọi thay đổi lưu ngay. RAM riêng tăng ~20 MB khi cửa sổ đang mở,
-về lại như cũ khi đóng.
+**Cửa sổ Cài đặt** (bấm chuột trái icon khay, chuột phải > Cài đặt…, hoặc `deskland-rs.exe --settings`):
+giống hệt bản gốc vì mở **chính trang `prototype/settings.html`** trong WebView2 (`src/web.rs`, ánh xạ `https://app.local/`
+vào thư mục `prototype` tìm thấy cạnh exe hoặc đi ngược lên từ exe). Có lưới chủ đề, xem trước trực tiếp với vị trí biểu
+tượng thật, thông số theo nhóm, đổi ngôn ngữ, khởi động cùng Windows. Giao thức thông điệp giống bản C#; bản Rust gửi
+thêm `caps` trong `init` để trang:
+- chỉ cho chọn chủ đề đã port (còn lại hiện "Sắp ra mắt"), ẩn thông số chưa port (cây dừa, cậu bé, mèo) và tắt chúng
+  trong khung xem trước cho giống desktop, ẩn nút chia sẻ ảnh / video;
+- thay nhóm Màn hình khóa bằng các tùy chọn **khóa thật của Windows** (Khóa với cảnh động, cảnh động khi rảnh, ảnh màn
+  khóa). Không có PIN, không chặn Win+L, không tự kiểm mật khẩu. Bản C# không gửi `caps` nên trang của nó giữ nguyên.
+
+WebView2 chỉ chạy khi cửa sổ đang mở (~6 tiến trình, ~290 MB riêng); đóng là tắt hẳn. Bản Rust giữ thêm ~9 MB sau lần mở
+đầu (thư viện COM của WebView2). Không có WebView2 Runtime hoặc không thấy thư mục `prototype` thì dùng cửa sổ Win32
+dự phòng (`src/settings.rs`, mở thẳng bằng `--settings-win32`). Kiểm thử: `--webview-debug` mở cổng DevTools 9222.
 Nhật ký: `deskland-rs.log` cạnh file exe (in RAM + khung/giây mỗi 10 giây).
 
 ## Đã port

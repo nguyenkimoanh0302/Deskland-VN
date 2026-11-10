@@ -117,7 +117,18 @@
     "lockAuthLabel": "Yêu cầu nhập mật khẩu trên màn hình khóa động",
     "lockAuthHint": "Hiển thị khung tài khoản Windows và bắt nhập mật khẩu/PIN ngay trên nền cảnh động WebGL2",
     "lockSyncWinLabel": "Đồng bộ ảnh nền uốn quanh đồng hồ Windows",
-    "lockSyncWinHint": "Tự động xuất ảnh cảnh hiện tại (có uốn địa hình quanh vị trí đồng hồ Windows 11) làm nền khóa mặc định"
+    "lockSyncWinHint": "Tự động xuất ảnh cảnh hiện tại (có uốn địa hình quanh vị trí đồng hồ Windows 11) làm nền khóa mặc định",
+    "lockRealTitle": "Màn hình khóa (khóa thật của Windows)",
+    "lockSaverNowLabel": "Khóa với cảnh động",
+    "lockSaverNowHint": "Bật ngay cảnh động toàn màn hình; chạm chuột hoặc bàn phím là Windows khóa máy và hiện màn đăng nhập",
+    "lockSaverNowHintKey": "Bật ngay cảnh động toàn màn hình; chạm chuột hoặc bàn phím là Windows khóa máy và hiện màn đăng nhập (Ctrl+Alt+L)",
+    "lockSaverNowBtn": "Bật ngay",
+    "lockSaverIdleLabel": "Cảnh động khi máy rảnh",
+    "lockSaverIdleHint": "Đặt Deskland làm trình bảo vệ màn hình của Windows, có bật khóa khi quay lại",
+    "lockSyncRealLabel": "Dùng cảnh làm ảnh màn khóa Windows",
+    "lockSyncRealHint": "Chụp cảnh hiện tại làm ảnh nền màn khóa (ảnh tĩnh)",
+    "lockRealNote": "Win+L và nút Khóa của Windows vẫn ra màn khóa ảnh tĩnh: Windows không cho ứng dụng vẽ lên màn khóa thật. Mở khóa bằng mật khẩu / PIN / Windows Hello của chính Windows.",
+    "lockNowRealTitle": "Khóa Windows ngay (giống Win+L)"
   },
   "host": {
     "traySettings": "Cài đặt…",

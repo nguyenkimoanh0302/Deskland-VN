@@ -8,6 +8,7 @@ mod desktop;
 mod engine;
 mod lock;
 mod settings;
+mod web;
 mod themes {
     pub mod beach;
     pub mod meadow;
@@ -261,6 +262,8 @@ struct Config {
     lock_sync: bool,
     /// Số phút rảnh trước khi trình bảo vệ màn hình chạy (`lockIdleMins`)
     lock_idle_mins: u32,
+    /// Ngôn ngữ giao diện trang cài đặt: "auto" | "vi" | "en"
+    lang: String,
 }
 
 fn rust_settings_path() -> std::path::PathBuf {
@@ -270,9 +273,12 @@ fn rust_settings_path() -> std::path::PathBuf {
 /// Đọc `~/.deskland-rs/settings.json` (cài đặt riêng của bản Rust); chưa có thì đọc của bản C#
 /// (`%LOCALAPPDATA%/DesklandPreview/settings.json`) để giữ chủ đề / thông số đang dùng.
 fn load_config(cli_theme: Option<String>) -> Config {
-    let read = |p: &std::path::Path| std::fs::read_to_string(p).ok().and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+    let read = |p: &std::path::Path| std::fs::read_to_string(p).ok().and_then(|s| serde_json::from_str::<serde_json::Value>(s.trim_start_matches('\u{feff}')).ok());
     let cs = std::env::var("LOCALAPPDATA").map(|d| std::path::PathBuf::from(d).join("DesklandPreview").join("settings.json")).unwrap_or_default();
-    let root = read(&rust_settings_path()).or_else(|| read(&cs)).unwrap_or(serde_json::Value::Null);
+    let csv = read(&cs);
+    let root = read(&rust_settings_path()).or_else(|| csv.clone()).unwrap_or(serde_json::Value::Null);
+    // Ngôn ngữ: bản Rust chưa lưu thì theo lựa chọn ở bản C#
+    let lang = root.get("lang").or_else(|| csv.as_ref().and_then(|c| c.get("lang"))).and_then(|v| v.as_str()).unwrap_or("auto").to_string();
     let saved = root.get("theme").and_then(|v| v.as_str()).unwrap_or("beach").to_string();
     let mut theme = cli_theme.unwrap_or(saved);
     if theme != "beach" && theme != "meadow" {
@@ -283,6 +289,7 @@ fn load_config(cli_theme: Option<String>) -> Config {
         theme,
         params: root.get("params").cloned().unwrap_or(serde_json::Value::Null),
         lock_sync: root.get("lockSyncWin").and_then(|v| v.as_bool()).unwrap_or(true),
+        lang,
         lock_idle_mins: root.get("lockIdleMins").and_then(|v| v.as_u64()).map(|v| v as u32).filter(|&v| v > 0).unwrap_or(5),
     }
 }
@@ -294,12 +301,63 @@ fn save_config(cfg: &Config) {
         "theme": cfg.theme,
         "lockSyncWin": LOCK_SYNC.with(|c| c.get()),
         "lockIdleMins": cfg.lock_idle_mins,
+        "lang": cfg.lang,
         "params": cfg.params,
     });
     let p = rust_settings_path();
     if let Err(e) = std::fs::write(&p, serde_json::to_string_pretty(&v).unwrap_or_default()) {
         log!("Lưu cài đặt {} lỗi: {e}", p.display());
     }
+}
+
+/// Ngôn ngữ thực dùng + ngôn ngữ hệ thống cho trang cài đặt.
+fn lang_eff(setting: &str) -> (String, String) {
+    let id = unsafe { windows_sys::Win32::Globalization::GetUserDefaultUILanguage() };
+    let sys = if id & 0x3FF == 0x2A { "vi" } else { "en" }.to_string();
+    let eff = if setting == "vi" || setting == "en" { setting.to_string() } else { sys.clone() };
+    (eff, sys)
+}
+
+/// Màn hình chính trong danh sách cửa sổ hình nền.
+fn primary_wall(app: &App) -> Option<&Wallpaper> {
+    app.walls.iter().find(|w| w.screen.left == 0 && w.screen.top == 0).or(app.walls.first())
+}
+
+/// Thông điệp `init` cho trang cài đặt (cùng định dạng bản C#), kèm `caps` nói rõ bản Rust làm được gì.
+fn web_init(app: &App) -> serde_json::Value {
+    let (w, h) = primary_wall(app).map(|p| (p.screen.right - p.screen.left, p.screen.bottom - p.screen.top)).unwrap_or((1920, 1080));
+    let (eff, sys) = lang_eff(&app.cfg.lang);
+    serde_json::json!({
+        "t": "init",
+        "theme": app.cfg.theme,
+        "params": app.cfg.params,
+        "screen": { "w": w, "h": h },
+        "autostart": settings::autostart_enabled(),
+        "autostartWarn": false,
+        "lang": app.cfg.lang, "langEff": eff, "langSys": sys,
+        "lockCfg": {
+            "idleMins": if lock::saver_installed() { app.cfg.lock_idle_mins } else { 0 },
+            "syncWin": LOCK_SYNC.with(|c| c.get()),
+        },
+        "caps": {
+            // Chỉ dùng khóa thật của Windows: trang hiện nhóm tùy chọn khóa riêng, không có PIN / chặn Win+L
+            "realLock": true,
+            "hotkey": HOTKEY_OK.with(|c| c.get()),
+            "share": false,
+            "themes": ["beach", "meadow"],
+            // Chưa port: cây dừa, cậu bé, mèo -> ẩn thanh trượt, xem trước cũng tắt cho giống desktop
+            "hide": ["palms", "showBoy", "showCat"],
+            "force": { "palms": 0, "showBoy": 0, "showCat": 0 },
+        },
+    })
+}
+
+/// Vị trí biểu tượng trên màn hình chính (toạ độ trong màn hình, điểm ảnh vật lý) như bản C#.
+fn icons_json(app: &App) -> String {
+    let Some(p) = primary_wall(app) else { return String::new() };
+    let s = p.screen;
+    let r: Vec<[i32; 4]> = p.last_icons.as_deref().unwrap_or(&[]).iter().map(|r| [r.left - s.left, r.top - s.top, r.right - s.left, r.bottom - s.top]).collect();
+    serde_json::json!({ "t": "icons", "vis": !r.is_empty(), "r": r }).to_string()
 }
 
 // ---------------------------------------------------------------- Một cửa sổ hình nền / màn hình
@@ -869,7 +927,9 @@ fn arg_value(args: &[String], name: &str) -> Option<String> {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     // `--settings`: mở cửa sổ cài đặt của bản đang chạy (nếu có), không thì khởi động rồi mở
-    let open_settings = args.iter().any(|a| a == "--settings");
+    let force_win32 = args.iter().any(|a| a == "--settings-win32");
+    web::DEBUG_PORT.store(args.iter().any(|a| a == "--webview-debug"), std::sync::atomic::Ordering::Relaxed);
+    let open_settings = force_win32 || args.iter().any(|a| a == "--settings");
     if open_settings {
         let cls = wide(MSG_CLASS);
         unsafe {
@@ -1028,6 +1088,9 @@ fn main() {
     // Đồng bộ ảnh màn khóa Windows vài giây sau khi cảnh đã ổn định
     let mut lock_sync_at = (lock_sync && !saver).then(|| app.now() + 6_000.0);
     let mut saver_check_at: Option<f64> = None;
+    let mut rebuild_at: Option<f64> = None;
+    let mut web_changed = false;
+    let mut last_icons_json = String::new();
     // Ngừng vẽ khi không ai thấy desktop: phiên khóa / màn Winlogon / trình bảo vệ màn hình đang chạy
     let mut hidden = false;
 
@@ -1122,7 +1185,116 @@ fn main() {
             }
         }
         if cmd == CMD_SETTINGS {
-            settings::open(&app.settings_state());
+            // Giống bản gốc: trang settings.html trong WebView2. Không được thì dùng cửa sổ Win32 dự phòng.
+            let r = if force_win32 { Err("--settings-win32".to_string()) } else { web::find_prototype().ok_or_else(|| "không thấy thư mục prototype (settings.html)".to_string()).and_then(|p| web::open(&p)) };
+            if let Err(e) = r {
+                log!("Không mở được cài đặt WebView2 ({e}) -> dùng cửa sổ Win32");
+                settings::open(&app.settings_state());
+            }
+        }
+        // Thông điệp từ trang cài đặt WebView2
+        for raw in web::take_inbox() {
+            let Ok(m) = serde_json::from_str::<serde_json::Value>(&raw) else { continue };
+            let s_ = |k: &str| m.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            match s_("t").as_str() {
+                "hello" => {
+                    web::post(&web_init(&app).to_string());
+                    last_icons_json.clear();
+                }
+                "set" => {
+                    let (theme, key) = (s_("theme"), s_("key"));
+                    let val = m.get("value").cloned().unwrap_or(serde_json::Value::Null);
+                    if theme.is_empty() || key.is_empty() {
+                        continue;
+                    }
+                    if !app.cfg.params.is_object() {
+                        app.cfg.params = serde_json::json!({});
+                    }
+                    let root = app.cfg.params.as_object_mut().unwrap();
+                    let e = root.entry(theme.clone()).or_insert_with(|| serde_json::json!({}));
+                    if !e.is_object() {
+                        *e = serde_json::json!({});
+                    }
+                    e.as_object_mut().unwrap().insert(key, val);
+                    if theme == app.cfg.theme {
+                        // Trang gửi liên tục khi kéo thanh trượt: gom lại, dựng cảnh sau khi ngừng kéo 250 ms
+                        rebuild_at = Some(app.now() + 250.0);
+                    }
+                    web_changed = true;
+                }
+                "reset" => {
+                    let theme = s_("theme");
+                    if let Some(root) = app.cfg.params.as_object_mut() {
+                        let seed = root.get(&theme).and_then(|p| p.get("seed")).cloned();
+                        root.insert(theme.clone(), seed.map(|sd| serde_json::json!({ "seed": sd })).unwrap_or(serde_json::json!({})));
+                    }
+                    if theme == app.cfg.theme {
+                        rebuild_at = Some(app.now());
+                    }
+                    log!("Đặt lại thông số mặc định cho {theme}");
+                    web_changed = true;
+                }
+                "theme" => {
+                    let id = s_("id");
+                    if id == "beach" || id == "meadow" {
+                        let id: &'static str = if id == "meadow" { "meadow" } else { "beach" };
+                        app.switch_theme(id);
+                        CURRENT_THEME.with(|c| c.set(if id == "meadow" { CMD_MEADOW } else { CMD_BEACH }));
+                    } else {
+                        log!("Chủ đề '{id}' chưa port sang Rust");
+                        web::post(&serde_json::json!({ "t": "themeChanged", "id": app.cfg.theme }).to_string());
+                    }
+                    web_changed = true;
+                }
+                "lockNow" => lock::lock_now(),
+                "saverNow" => PENDING_CMD.with(|c| c.set(CMD_SAVER_NOW)),
+                "lockCfg" => {
+                    if let Some(on) = m.get("syncWin").and_then(|v| v.as_bool()) {
+                        if on != LOCK_SYNC.with(|c| c.get()) {
+                            LOCK_SYNC.with(|c| c.set(on));
+                            log!("Đồng bộ ảnh màn khóa Windows: {}", if on { "bật" } else { "tắt" });
+                            if on {
+                                app.sync_lock_image();
+                            }
+                        }
+                    }
+                    if let Some(mins) = m.get("idleMins").and_then(|v| v.as_u64()).map(|v| v as u32) {
+                        let installed = lock::saver_installed();
+                        if mins == 0 && installed {
+                            lock::uninstall_saver();
+                        } else if mins > 0 && (!installed || mins != app.cfg.lock_idle_mins) {
+                            app.cfg.lock_idle_mins = mins;
+                            if let Err(e) = lock::install_saver(mins) {
+                                log!("Đặt trình bảo vệ màn hình lỗi: {e}");
+                                unsafe { MessageBoxW(msg_hwnd, wide(&e).as_ptr(), wide("Deskland").as_ptr(), MB_OK | MB_ICONWARNING) };
+                                web::post(&web_init(&app).to_string());
+                            }
+                        }
+                    }
+                    web_changed = true;
+                }
+                "autostart" => {
+                    settings::set_autostart(m.get("v").and_then(|v| v.as_bool()).unwrap_or(false));
+                    web::post(&serde_json::json!({ "t": "autostart", "v": settings::autostart_enabled() }).to_string());
+                }
+                "lang" => {
+                    app.cfg.lang = s_("v");
+                    let (eff, sys) = lang_eff(&app.cfg.lang);
+                    web::post(&serde_json::json!({ "t": "lang", "v": app.cfg.lang, "eff": eff, "sys": sys }).to_string());
+                    web_changed = true;
+                }
+                other => log!("Bỏ qua thông điệp cài đặt '{other}' (bản Rust chưa hỗ trợ)"),
+            }
+        }
+        if rebuild_at.is_some_and(|t| app.now() >= t) {
+            rebuild_at = None;
+            app.ensure_seed();
+            app.rebuild_theme();
+        }
+        if web_changed {
+            web_changed = false;
+            save_config(&app.cfg);
+            settings::sync(&app.settings_state());
         }
         match cmd {
             CMD_EXIT => break,
@@ -1179,6 +1351,10 @@ fn main() {
         if changed && cmd != CMD_EXIT {
             save_config(&app.cfg);
             settings::sync(&app.settings_state());
+            if web::is_open() && cmd != CMD_SETTINGS && cmd != 0 {
+                // Đổi từ menu khay / phím tắt: báo trang cài đặt
+                web::post(&serde_json::json!({ "t": "themeChanged", "id": app.cfg.theme }).to_string());
+            }
         }
         // Nếu Windows không bật được trình bảo vệ màn hình thì vẫn khóa thật như người dùng muốn
         if saver_check_at.is_some_and(|t| app.now() >= t) {
@@ -1215,6 +1391,13 @@ fn main() {
         if now >= next_icons && !hidden {
             app.fix_z_order();
             app.poll_icons();
+            if web::is_open() {
+                let j = icons_json(&app);
+                if j != last_icons_json {
+                    web::post(&j);
+                    last_icons_json = j;
+                }
+            }
             next_icons = now + 400.0;
         }
         if now >= next_fg {

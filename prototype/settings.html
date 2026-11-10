@@ -346,7 +346,8 @@ const send = m => { if (host) host.postMessage(JSON.stringify(m)); };
 const state = { registry0: null, registry: null, theme: 'beach', params: {}, screen: null, icons: null,
   langSetting: 'auto', langSys: 'vi', autostartWarn: false, autostartSw: '',
   updateVersion: '', updateStatus: '', updateProgress: -1, updateError: '',
-  lockCfg: { widget: true, idleMins: 5, requireAuth: true, syncWin: true, overrideWinL: true, pin: '' } };
+  lockCfg: { widget: true, idleMins: 5, requireAuth: true, syncWin: true, overrideWinL: true, pin: '' },
+  caps: {} };
 const $ = id => document.getElementById(id);
 const frame = $('preview');
 
@@ -422,8 +423,15 @@ async function setLang(code) {
   applyStatic();
 }
 
+function applyCaps() {
+  const c = state.caps;
+  $('share').hidden = $('shareVideo').hidden = c.share === false;
+  document.querySelector('.preview-actions').style.gridTemplateColumns = c.share === false ? '1fr' : '';
+  if (c.realLock) $('lockNow').title = t('lockNowRealTitle');
+}
 function rerenderTexts() {
   if (!state.screen) return;
+  applyCaps();
   renderHead(); renderThemes(); renderControls(); updateFoot(); shareBusy(shareState); showAutostartWarn(); showUpdate();
 }
 
@@ -435,13 +443,14 @@ $('lang').addEventListener('change', e => {
 
 /* ---------- Theme Registry ---------- */
 const themeById = id => state.registry.themes.find(t => t.id === id);
+const themeReady = th => !!th && th.status === 'ready' && (!state.caps.themes || state.caps.themes.includes(th.id));
 function defaultsOf(theme) {
   const d = {};
   if (theme.adaptive) d.adaptive = 1;
   for (const g of theme.groups || []) for (const p of g.params) d[p.key] = p.default;
   return d;
 }
-function valuesOf(theme) { return Object.assign(defaultsOf(theme), state.params[theme.id] || {}); }
+function valuesOf(theme) { return Object.assign(defaultsOf(theme), state.params[theme.id] || {}, state.caps.force || {}); }
 function fmt(p, v) {
   if (p.options) return p.options[v] || '';
   if (p.format === 'times') return '×' + v.toFixed(2);
@@ -453,7 +462,7 @@ function fmt(p, v) {
 const thumbUrl = (value, id) => window.DESKLAND_THUMBS?.[id] || String(value || '').match(/^url\(([^)]+)\)/)?.[1] || '';
 function renderThemes() {
   $('themes').innerHTML = state.registry.themes.map(th => {
-    const ready = th.status === 'ready', on = th.id === state.theme;
+    const ready = themeReady(th), on = th.id === state.theme;
     return `<button class="theme${on ? ' on' : ''}" data-id="${th.id}" aria-pressed="${on}" aria-label="${th.name}" ${ready ? '' : 'disabled'}>
       <div class="theme-copy"><div class="theme-meta"><span class="badge">${t(on ? 'badgeOn' : ready ? 'badgeReady' : 'badgeSoon')}</span>
         <svg class="theme-arrow" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 15 15 5M5 5h10v10"/></svg></div>
@@ -490,7 +499,34 @@ const IDLE_STEPS = [
   { mins: 15, key: 'lockIdle15m' },
   { mins: 30, key: 'lockIdle30m' }
 ];
+// Chương trình chủ chỉ dùng khóa thật của Windows: không PIN, không chặn Win+L, không tự kiểm mật khẩu
+function renderRealLockGroupHtml() {
+  const lc = state.lockCfg || { idleMins: 0, syncWin: true };
+  return `
+    <div class="group"><h3>${t('lockRealTitle')}</h3>
+      <div class="param">
+        <div class="row">
+          <span class="label">${t('lockSaverNowLabel')}<span class="hint">${t(state.caps.hotkey ? 'lockSaverNowHintKey' : 'lockSaverNowHint')}</span></span>
+          <button class="ghost-btn" data-lock-action="saverNow" style="padding:7px 12px;font-weight:600;white-space:nowrap">${t('lockSaverNowBtn')}</button>
+        </div>
+      </div>
+      <div class="param">
+        <div class="row"><span class="label">${t('lockSaverIdleLabel')}<span class="hint">${t('lockSaverIdleHint')}</span></span></div>
+        <div class="opts" role="radiogroup" aria-label="${t('lockSaverIdleLabel')}">
+          ${IDLE_STEPS.map(s => `<button data-lock-idle="${s.mins}" class="${lc.idleMins === s.mins ? 'on' : ''}" role="radio" aria-checked="${lc.idleMins === s.mins}">${t(s.key)}</button>`).join('')}
+        </div>
+      </div>
+      <div class="param">
+        <div class="row">
+          <span class="label">${t('lockSyncRealLabel')}<span class="hint">${t('lockSyncRealHint')}</span></span>
+          <label class="switch-row"><input type="checkbox" data-lock-toggle="syncWin" ${lc.syncWin ? 'checked' : ''}><i class="switch"></i></label>
+        </div>
+      </div>
+      <p class="hint" style="margin-top:6px">${t('lockRealNote')}</p>
+    </div>`;
+}
 function renderLockGroupHtml() {
+  if (state.caps.realLock) return renderRealLockGroupHtml();
   const lc = state.lockCfg || { widget: true, idleMins: 5, requireAuth: true, syncWin: true, overrideWinL: true, pin: '' };
   const escPin = String(lc.pin || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
   return `
@@ -535,7 +571,9 @@ function renderLockGroupHtml() {
 }
 function renderControls() {
   const theme = themeById(state.theme), vals = valuesOf(theme);
-  const themeGroupsHtml = (!theme.groups ? '<div class="empty">' + t('noParams') + '</div>' : theme.groups.map(g => `
+  const hide = state.caps.hide || [];
+  const groups = (theme.groups || []).map(g => Object.assign({}, g, { params: g.params.filter(p => !hide.includes(p.key)) })).filter(g => g.params.length);
+  const themeGroupsHtml = (!groups.length ? '<div class="empty">' + t('noParams') + '</div>' : groups.map(g => `
     <div class="group"><h3>${g.name}</h3>
       ${g.params.map(p => `
         <div class="param${vals[p.key] !== p.default ? ' changed' : ''}" id="p-${p.key}">
@@ -584,6 +622,7 @@ $('controls').addEventListener('change', e => {
   const lt = e.target.dataset.lockToggle;
   if (lt) {
     state.lockCfg[lt] = !!e.target.checked;
+    if (state.caps.realLock) { send({ t: 'lockCfg', idleMins: state.lockCfg.idleMins, syncWin: state.lockCfg.syncWin }); flashSaved(); return; }
     send(Object.assign({ t: 'lockCfg' }, state.lockCfg));
     flashSaved();
   } else if (e.target.id === 'lockPinInput') {
@@ -597,6 +636,8 @@ $('controls').addEventListener('click', e => {
   if (b) setParam(b.dataset.reset, paramOf(b.dataset.reset).default);
   const o = e.target.closest('[data-opt]');
   if (o) setParam(o.closest('.opts').dataset.key, +o.dataset.opt);
+  const la = e.target.closest('[data-lock-action]');
+  if (la) send({ t: la.dataset.lockAction });
   const li = e.target.closest('[data-lock-idle]');
   if (li) {
     const mins = +li.dataset.lockIdle;
@@ -606,7 +647,7 @@ $('controls').addEventListener('click', e => {
       btn.classList.toggle('on', on);
       btn.setAttribute('aria-checked', on);
     });
-    send(Object.assign({ t: 'lockCfg' }, state.lockCfg));
+    send(state.caps.realLock ? { t: 'lockCfg', idleMins: mins, syncWin: state.lockCfg.syncWin } : Object.assign({ t: 'lockCfg' }, state.lockCfg));
     flashSaved();
   }
 });
@@ -806,10 +847,12 @@ function onHost(m) {
     state.langSetting = m.lang || 'auto';
     state.langSys = m.langSys || 'vi';
     setLang(m.langEff || state.langSys).then(() => {
-      state.theme = themeById(m.theme) && themeById(m.theme).status === 'ready' ? m.theme : 'beach';
+      state.caps = m.caps || {};
+      applyCaps();
+      state.theme = themeReady(themeById(m.theme)) ? m.theme : 'beach';
       state.params = m.params || {};
       state.screen = m.screen;
-      if (m.lockCfg) state.lockCfg = Object.assign({ widget: true, idleMins: 5, requireAuth: true, syncWin: true, overrideWinL: true, pin: '' }, m.lockCfg);
+      if (m.lockCfg) state.lockCfg = Object.assign(state.caps.realLock ? { idleMins: 0, syncWin: true } : { widget: true, idleMins: 5, requireAuth: true, syncWin: true, overrideWinL: true, pin: '' }, m.lockCfg);
       $('autostart').checked = !!m.autostart;
       state.autostartWarn = !!m.autostartWarn;
       state.autostartSw = m.autostartSw || '';
@@ -819,7 +862,7 @@ function onHost(m) {
       document.documentElement.classList.add('ready');
     });
   } else if (m.t === 'themeChanged') {
-    if (!themeById(m.id) || themeById(m.id).status !== 'ready') return;
+    if (!themeReady(themeById(m.id))) return;
     state.theme = m.id;
     showTheme();
   } else if (m.t === 'updateState') {

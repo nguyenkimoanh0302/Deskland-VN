@@ -117,7 +117,18 @@
     "lockAuthLabel": "Require password on live lock screen",
     "lockAuthHint": "Show your Windows user profile and require password/PIN sign-in directly over the live WebGL2 wallpaper",
     "lockSyncWinLabel": "Sync scene around Windows lock screen clock",
-    "lockSyncWinHint": "Automatically set a snapshot of your scene (shaped around the Windows 11 clock position) as the system lock screen background"
+    "lockSyncWinHint": "Automatically set a snapshot of your scene (shaped around the Windows 11 clock position) as the system lock screen background",
+    "lockRealTitle": "Lock screen (real Windows lock)",
+    "lockSaverNowLabel": "Lock with live scene",
+    "lockSaverNowHint": "Show the live scene full screen now; any mouse or key input makes Windows lock and show the sign-in screen",
+    "lockSaverNowHintKey": "Show the live scene full screen now; any mouse or key input makes Windows lock and show the sign-in screen (Ctrl+Alt+L)",
+    "lockSaverNowBtn": "Start now",
+    "lockSaverIdleLabel": "Live scene when idle",
+    "lockSaverIdleHint": "Use Deskland as the Windows screen saver, with \"on resume, display logon screen\" turned on",
+    "lockSyncRealLabel": "Use scene as Windows lock screen picture",
+    "lockSyncRealHint": "Capture the current scene as the lock screen background (still image)",
+    "lockRealNote": "Win+L and the Windows Lock button still show the still-image lock screen: Windows does not let apps draw on the real lock screen. Unlock with your Windows password / PIN / Windows Hello.",
+    "lockNowRealTitle": "Lock Windows now (same as Win+L)"
   },
   "host": {
     "traySettings": "Settings…",
