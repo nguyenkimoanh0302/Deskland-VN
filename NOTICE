@@ -1,0 +1,11 @@
+Copyright (C) 2026 Deskland authors.
+Upstream repository: https://github.com/BLEZZ0102/Deskland
+
+Modified on 2026-11-10 (Vietnamese Community Edition / Bản mở rộng Tiếng Việt):
+- Added multi-monitor wallpaper rendering support in host/DesktopHost.cs.
+- Added 7 custom WebGL2 interactive themes: Maldives (maldives.html), Lake (lake.html), Sky (sky.html), Ocean (ocean.html), Rainforest (rainforest.html), Moc Chau (mocchau.html), and Tet Sakura (tet-sakura.html).
+- Optimized GPU frame rate and canvas scaling across all themes.
+- Replaced Simplified Chinese localization with Vietnamese (vi) and removed locked preview cards.
+
+Project source code and included theme assets are licensed under GNU GPL version 3.
+Third-party dependencies retain their own licenses. See LICENSE, THIRD_PARTY_NOTICES.md and TRADEMARKS.md.

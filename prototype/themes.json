@@ -1,0 +1,860 @@
+{
+  "version": 1,
+  "themes": [
+    {
+      "id": "meadow",
+      "adaptive": true,
+      "name": "Thảo nguyên",
+      "desc": "Thảo nguyên màu nước dịu nhẹ, biểu tượng ẩn trong những đám mây trắng bồng bềnh đổ bóng xanh thẫm trên cỏ",
+      "page": "meadow.html",
+      "status": "ready",
+      "product": "free",
+      "thumb": "url(thumbs/meadow.webp?v=5d36b1f2d4) center / cover no-repeat, radial-gradient(ellipse 22% 16% at 36% 38%, #fdfeff 60%, #dfe7ef 75%, transparent 78%), radial-gradient(ellipse 22% 16% at 46% 58%, #5f8a3e 70%, transparent 74%), radial-gradient(ellipse 18% 13% at 72% 70%, #fdfeff 60%, #dfe7ef 75%, transparent 78%), radial-gradient(ellipse 18% 13% at 80% 86%, #5f8a3e 70%, transparent 74%), linear-gradient(160deg, #c3d684 0%, #a2c06a 100%)",
+      "thumbSource": "custom",
+      "groups": [
+        {
+          "name": "Quanh biểu tượng",
+          "params": [
+            {
+              "key": "sigma",
+              "label": "Kích thước đám mây",
+              "hint": "Đám mây bao quanh biểu tượng trải rộng ra bao xa",
+              "min": 40,
+              "max": 200,
+              "step": 1,
+              "default": 72,
+              "unit": "px"
+            }
+          ]
+        },
+        {
+          "name": "Mây",
+          "params": [
+            {
+              "key": "cover",
+              "label": "Mây trên thảo nguyên",
+              "hint": "Mật độ những đám mây trôi tự do trên khoảng cỏ trống",
+              "min": 0,
+              "max": 1,
+              "step": 0.01,
+              "default": 0.3,
+              "format": "percent"
+            },
+            {
+              "key": "flow",
+              "label": "Tốc độ trôi",
+              "hint": "Tốc độ mây trôi và chuyển động phồng xẹp của đám mây",
+              "min": 0,
+              "max": 3,
+              "step": 0.05,
+              "default": 1,
+              "format": "times"
+            }
+          ]
+        },
+        {
+          "name": "Nhân vật",
+          "params": [
+            {
+              "key": "showBoy",
+              "label": "Hiển thị cậu bé",
+              "hint": "Hiển thị hoặc ẩn cậu bé cùng chiếc diều trên tay",
+              "options": [
+                "Ẩn",
+                "Hiện"
+              ],
+              "default": 1
+            },
+            {
+              "key": "showCat",
+              "label": "Hiển thị mèo con",
+              "hint": "Chú mèo đen nhỏ nằm thư giãn trên bãi cỏ",
+              "options": [
+                "Ẩn",
+                "Hiện"
+              ],
+              "default": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "beach",
+      "name": "Bãi biển",
+      "desc": "Đường bờ biển uốn lượn quanh các tệp tin của bạn với từng đợt sóng vỗ lên bãi cát vàng",
+      "page": "flat.html",
+      "status": "ready",
+      "product": "free",
+      "thumb": "url(thumbs/beach.webp?v=017578bc5c) center / cover no-repeat, linear-gradient(160deg, #f6ecdf 0%, #f6ecdf 34%, #bfeee0 36%, #57cfd0 55%, #0f9fc4 78%, #0a86b0 100%)",
+      "thumbSource": "custom",
+      "groups": [
+        {
+          "name": "Đường bờ biển",
+          "params": [
+            {
+              "key": "sigma",
+              "label": "Khoảng cách bờ biển",
+              "hint": "Đường bờ biển cách các biểu tượng bao xa",
+              "min": 40,
+              "max": 200,
+              "step": 1,
+              "default": 85,
+              "unit": "px"
+            },
+            {
+              "key": "warp",
+              "label": "Độ uốn lượn",
+              "hint": "Mức độ uốn cong tự nhiên của đường bờ biển",
+              "min": 0,
+              "max": 80,
+              "step": 1,
+              "default": 34
+            }
+          ]
+        },
+        {
+          "name": "Mặt nước",
+          "params": [
+            {
+              "key": "shoal",
+              "label": "Bãi nước nông trong vắt",
+              "hint": "Độ rộng vùng nước nông nhìn thấu đáy cát",
+              "min": 0,
+              "max": 300,
+              "step": 1,
+              "default": 110,
+              "unit": "px"
+            },
+            {
+              "key": "shallow",
+              "label": "Vùng biển nông",
+              "hint": "Khoảng cách chuyển màu từ xanh ngọc sang xanh biển sâu",
+              "min": 120,
+              "max": 700,
+              "step": 1,
+              "default": 260,
+              "unit": "px"
+            }
+          ]
+        },
+        {
+          "name": "Chi tiết",
+          "params": [
+            {
+              "key": "palms",
+              "label": "Hàng dừa",
+              "hint": "Số lượng cây dừa dọc bờ biển (đặt 0 để ẩn; tự giảm nếu ít bãi cát)",
+              "min": 0,
+              "max": 10,
+              "step": 1,
+              "default": 4,
+              "unit": "cây"
+            },
+            {
+              "key": "kayaks",
+              "label": "Thuyền kayak",
+              "min": 0,
+              "max": 4,
+              "step": 1,
+              "default": 2,
+              "unit": "chiếc"
+            },
+            {
+              "key": "birds",
+              "label": "Chim biển",
+              "hint": "Những chú hải âu chao liệng trên bầu trời biển",
+              "min": 0,
+              "max": 8,
+              "step": 1,
+              "default": 3,
+              "unit": "con"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "beach-turquoise",
+      "name": "Đảo Maldives",
+      "desc": "Làn nước xanh ngọc bích và bãi cát kem mịn màng, từng đàn cá nhỏ bơi lội giữa rạn san hô",
+      "page": "maldives.html",
+      "status": "ready",
+      "product": "free",
+      "thumb": "url(thumbs/maldives.webp?v=4ebfbc8e82) center / cover no-repeat, linear-gradient(160deg, #fcf3e1 0%, #fcf3e1 34%, #b8eee0 36%, #26dad1 55%, #1cc6c3 78%, #19b3b5 100%)",
+      "thumbSource": "custom",
+      "groups": [
+        {
+          "name": "Đường bờ biển",
+          "params": [
+            {
+              "key": "sigma",
+              "label": "Bán kính bãi cát",
+              "hint": "Phạm vi bãi cát quanh mỗi biểu tượng; các biểu tượng gần nhau sẽ nối liền thành đảo",
+              "min": 40,
+              "max": 200,
+              "step": 1,
+              "default": 85,
+              "unit": "px"
+            },
+            {
+              "key": "warp",
+              "label": "Độ uốn bờ cát",
+              "hint": "0 là cung tròn mượt mà, càng lớn các vịnh nhỏ và mũi cát càng rõ nét",
+              "min": 0,
+              "max": 80,
+              "step": 1,
+              "default": 34
+            }
+          ]
+        },
+        {
+          "name": "Mặt nước",
+          "params": [
+            {
+              "key": "shoal",
+              "label": "Độ rộng bãi cạn",
+              "hint": "Vành đai nước nông màu xanh bạc hà trong suốt sát bờ cát",
+              "min": 0,
+              "max": 300,
+              "step": 1,
+              "default": 120,
+              "unit": "px"
+            },
+            {
+              "key": "shallow",
+              "label": "Chuyển sắc xanh ngọc",
+              "hint": "Khoảng cách chuyển từ xanh ngọc nhạt sang vùng biển xanh ngọc đậm",
+              "min": 120,
+              "max": 700,
+              "step": 1,
+              "default": 280,
+              "unit": "px"
+            }
+          ]
+        },
+        {
+          "name": "Chi tiết",
+          "params": [
+            {
+              "key": "palms",
+              "label": "Cây dừa",
+              "hint": "Những hàng dừa nghiêng bóng bên trong bãi cát",
+              "min": 0,
+              "max": 10,
+              "step": 1,
+              "default": 4,
+              "unit": "cây"
+            },
+            {
+              "key": "fishSchools",
+              "label": "Đàn cá",
+              "hint": "Những đàn cá nhỏ bơi lội giữa rạn san hô và vùng nước nông",
+              "min": 0,
+              "max": 6,
+              "step": 1,
+              "default": 3,
+              "unit": "đàn"
+            },
+            {
+              "key": "turtles",
+              "label": "Rùa biển",
+              "hint": "Những chú rùa biển thong thả bơi qua làn nước trong",
+              "min": 0,
+              "max": 4,
+              "step": 1,
+              "default": 2,
+              "unit": "con"
+            },
+            {
+              "key": "kayaks",
+              "label": "Thuyền kayak",
+              "hint": "Thuyền nhỏ đầy màu sắc nổi trên mặt nước trong vắt, in bóng xuống đáy cát",
+              "min": 0,
+              "max": 4,
+              "step": 1,
+              "default": 1,
+              "unit": "chiếc"
+            },
+            {
+              "key": "birds",
+              "label": "Chim biển",
+              "hint": "Hải âu sải cánh bay lượn trên mặt biển",
+              "min": 0,
+              "max": 8,
+              "step": 1,
+              "default": 3,
+              "unit": "con"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lake",
+      "name": "Hồ nước",
+      "desc": "Bờ cỏ màu nước bao quanh mặt hồ trong vắt, lộ rõ những viên đá cuội dưới làn nước nông và bóng mây trắng phản chiếu",
+      "page": "lake.html",
+      "status": "ready",
+      "product": "free",
+      "thumb": "url(thumbs/lake.webp?v=e22cfe9d6a) center / cover no-repeat, linear-gradient(110deg, #abc475 0%, #bdce88 31%, #a79b66 33%, #0bb8bb 41%, #0fa4a5 66%, #12948e 100%)",
+      "thumbSource": "custom",
+      "groups": [
+        {
+          "name": "Bờ hồ",
+          "params": [
+            {
+              "key": "sigma",
+              "label": "Phạm vi bờ cỏ",
+              "hint": "Độ rộng bờ cỏ quanh mỗi biểu tượng; các biểu tượng gần nhau sẽ nối liền thành dải",
+              "min": 40,
+              "max": 200,
+              "step": 1,
+              "default": 82,
+              "unit": "px"
+            },
+            {
+              "key": "warp",
+              "label": "Độ uốn bờ hồ",
+              "hint": "0 là vịnh hồ tròn trịa, càng lớn đường bờ hồ càng uốn lượn tự nhiên",
+              "min": 0,
+              "max": 80,
+              "step": 1,
+              "default": 32
+            }
+          ]
+        },
+        {
+          "name": "Mặt hồ",
+          "params": [
+            {
+              "key": "shoal",
+              "label": "Bãi sỏi nước nông",
+              "hint": "Độ rộng dải nước nông ven bờ nơi nhìn thấy rõ sỏi và đá cuội dưới đáy",
+              "min": 20,
+              "max": 240,
+              "step": 1,
+              "default": 95,
+              "unit": "px"
+            },
+            {
+              "key": "depth",
+              "label": "Độ sâu mặt hồ",
+              "hint": "Khoảng cách chuyển màu từ xanh ngọc ven bờ sang xanh lục thẫm giữa lòng hồ",
+              "min": 100,
+              "max": 600,
+              "step": 1,
+              "default": 240,
+              "unit": "px"
+            },
+            {
+              "key": "flow",
+              "label": "Gợn sóng mặt hồ",
+              "hint": "Tốc độ gợn nước lăn tăn và bóng mây rung rinh nhẹ theo làn gió",
+              "min": 0,
+              "max": 3,
+              "step": 0.05,
+              "default": 1,
+              "format": "times"
+            }
+          ]
+        },
+        {
+          "name": "Bóng mây",
+          "params": [
+            {
+              "key": "clouds",
+              "label": "Mây phản chiếu",
+              "hint": "Số lượng đám mây trắng in bóng rõ nét trên mặt hồ phẳng lặng",
+              "min": 0,
+              "max": 8,
+              "step": 1,
+              "default": 4,
+              "unit": "đám"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sky",
+      "name": "Bầu trời",
+      "desc": "Bầu trời xanh hoạt hình với những đám mây tròn xoe nâng đỡ biểu tượng của bạn; hỗ trợ Ban ngày, Hoàng hôn và Ban đêm",
+      "adaptive": true,
+      "page": "sky.html",
+      "status": "ready",
+      "product": "free",
+      "thumb": "url(thumbs/sky.webp?v=d706a0326d) center / cover no-repeat, radial-gradient(ellipse 30% 20% at 30% 40%, #fbfdff 55%, #c2ddf5 57%, #c2ddf5 75%, transparent 77%), radial-gradient(ellipse 24% 15% at 74% 68%, #fbfdff 55%, #c2ddf5 57%, #c2ddf5 75%, transparent 77%), linear-gradient(180deg, #3385cc 0%, #80bfe6 100%)",
+      "thumbSource": "custom",
+      "groups": [
+        {
+          "name": "Thời gian",
+          "params": [
+            {
+              "key": "time",
+              "label": "Thời điểm trong ngày",
+              "hint": "Tự động chuyển đổi theo giờ hệ thống hoặc cố định ở một khung giờ",
+              "options": [
+                "Tự động",
+                "Ban ngày",
+                "Hoàng hôn",
+                "Ban đêm"
+              ],
+              "default": 0
+            }
+          ]
+        },
+        {
+          "name": "Quanh biểu tượng",
+          "params": [
+            {
+              "key": "sigma",
+              "label": "Kích thước đám mây",
+              "hint": "Độ lớn đám mây nâng đỡ biểu tượng; các biểu tượng cạnh nhau sẽ gộp thành đám mây lớn",
+              "min": 40,
+              "max": 200,
+              "step": 1,
+              "default": 74,
+              "unit": "px"
+            }
+          ]
+        },
+        {
+          "name": "Mây",
+          "params": [
+            {
+              "key": "cover",
+              "label": "Mây trôi tự do",
+              "hint": "Số lượng những đám mây nhỏ trôi ngang qua bầu trời",
+              "min": 0,
+              "max": 1,
+              "step": 0.01,
+              "default": 0.35,
+              "format": "percent"
+            },
+            {
+              "key": "flow",
+              "label": "Tốc độ gió mây",
+              "hint": "Tốc độ các tầng mây trôi và bồng bềnh theo gió",
+              "min": 0,
+              "max": 3,
+              "step": 0.05,
+              "default": 1,
+              "format": "times"
+            }
+          ]
+        },
+        {
+          "name": "Chi tiết",
+          "params": [
+            {
+              "key": "birds",
+              "label": "Đàn chim bay",
+              "hint": "Những chú chim nhỏ sải cánh qua tầng mây (xuất hiện vào ban ngày và hoàng hôn)",
+              "min": 0,
+              "max": 8,
+              "step": 1,
+              "default": 3,
+              "unit": "con"
+            },
+            {
+              "key": "plane",
+              "label": "Máy bay nhỏ",
+              "hint": "Thỉnh thoảng bay ngang qua chân trời để lại vệt mây trắng dài",
+              "options": [
+                "Không hiện",
+                "Thỉnh thoảng",
+                "Thường xuyên"
+              ],
+              "default": 1
+            },
+            {
+              "key": "moon",
+              "label": "Mặt trăng",
+              "hint": "Vầng trăng khuyết treo trên bầu trời lúc hoàng hôn và ban đêm",
+              "options": [
+                "Tắt",
+                "Bật"
+              ],
+              "default": 1
+            },
+            {
+              "key": "stars",
+              "label": "Mật độ sao đêm",
+              "hint": "Những vì sao lấp lánh giữa khoảng trống các tầng mây vào buổi tối",
+              "min": 0,
+              "max": 1,
+              "step": 0.05,
+              "default": 0.6,
+              "format": "percent"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ocean",
+      "name": "Đại dương",
+      "desc": "Nhìn từ trên cao xuống đại dương xanh thẳm, các biểu tượng nằm trên những đám mây trắng đổ bóng xuống mặt biển",
+      "adaptive": true,
+      "page": "ocean.html",
+      "status": "ready",
+      "product": "free",
+      "thumb": "url(thumbs/ocean.webp?v=a503d4f275) center / cover no-repeat, radial-gradient(ellipse 22% 16% at 36% 38%, #fbfdff 60%, #d5e4f5 75%, transparent 78%), radial-gradient(ellipse 22% 16% at 46% 58%, #1c58b4 70%, transparent 74%), radial-gradient(ellipse 18% 13% at 72% 70%, #fbfdff 60%, #d5e4f5 75%, transparent 78%), radial-gradient(ellipse 18% 13% at 80% 86%, #1c58b4 70%, transparent 74%), linear-gradient(160deg, #2a72d4 0%, #3a86e0 100%)",
+      "thumbSource": "custom",
+      "groups": [
+        {
+          "name": "Quanh biểu tượng",
+          "params": [
+            {
+              "key": "sigma",
+              "label": "Kích thước đám mây",
+              "hint": "Độ rộng đám mây trắng bao quanh biểu tượng cùng bóng mây xanh thẫm đổ chéo xuống mặt biển",
+              "min": 40,
+              "max": 200,
+              "step": 1,
+              "default": 72,
+              "unit": "px"
+            }
+          ]
+        },
+        {
+          "name": "Mây",
+          "params": [
+            {
+              "key": "cover",
+              "label": "Mây trên biển",
+              "hint": "Số lượng những đám mây nhỏ trôi lững lờ trên mặt biển",
+              "min": 0,
+              "max": 1,
+              "step": 0.01,
+              "default": 0.3,
+              "format": "percent"
+            },
+            {
+              "key": "flow",
+              "label": "Tốc độ gió biển",
+              "hint": "Tốc độ sóng biển lấp lánh và những đám mây trôi theo gió",
+              "min": 0,
+              "max": 3,
+              "step": 0.05,
+              "default": 1,
+              "format": "times"
+            }
+          ]
+        },
+        {
+          "name": "Chi tiết",
+          "params": [
+            {
+              "key": "boats",
+              "label": "Thuyền buồm",
+              "hint": "Những chiếc thuyền buồm trắng thong thả lướt trên mặt biển",
+              "min": 0,
+              "max": 6,
+              "step": 1,
+              "default": 2,
+              "unit": "chiếc"
+            },
+            {
+              "key": "yachts",
+              "label": "Du thuyền",
+              "hint": "Du thuyền rẽ sóng để lại vệt bọt trắng xóa phía sau",
+              "min": 0,
+              "max": 4,
+              "step": 1,
+              "default": 1,
+              "unit": "chiếc"
+            },
+            {
+              "key": "birds",
+              "label": "Chim biển",
+              "hint": "Đàn hải âu chao liệng giữa tầng mây và mặt biển",
+              "min": 0,
+              "max": 8,
+              "step": 1,
+              "default": 3,
+              "unit": "con"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rainforest",
+      "name": "Rừng mưa nhiệt đới",
+      "desc": "Trảng rêu xanh ẩm mượt được bao bọc bởi tán rừng rậm nhiệt đới nhiều tầng trong cơn mưa, hòa cùng gợn nước, sương mù và đom đóm",
+      "page": "rainforest.html",
+      "status": "ready",
+      "product": "free",
+      "thumb": "radial-gradient(ellipse 32% 26% at 48% 52%, #8ebb6e 88%, #588a48 94%, transparent 98%), radial-gradient(circle at 18% 24%, #2b6e4c 14%, transparent 15%), radial-gradient(circle at 34% 18%, #478c54 12%, transparent 13%), radial-gradient(circle at 80% 28%, #266b5e 15%, transparent 16%), radial-gradient(circle at 72% 82%, #529958 14%, transparent 15%), radial-gradient(circle at 22% 80%, #245e48 13%, transparent 14%), radial-gradient(circle at 64% 36%, #bdf55a 1.5%, transparent 3%), radial-gradient(circle at 32% 68%, #bdf55a 1.5%, transparent 3%), linear-gradient(160deg, #1b4334 0%, #285e46 50%, #17382c 100%)",
+      "groups": [
+        {
+          "name": "Quanh biểu tượng",
+          "params": [
+            {
+              "key": "sigma",
+              "label": "Độ rộng trảng rêu",
+              "hint": "Phạm vi khoảng đất rêu ẩm quanh mỗi biểu tượng; các biểu tượng gần nhau sẽ nối liền thành một trảng",
+              "min": 40,
+              "max": 200,
+              "step": 1,
+              "default": 80,
+              "unit": "px"
+            },
+            {
+              "key": "warp",
+              "label": "Độ uốn bìa rừng",
+              "hint": "0 là khoảng trống tròn đều, càng lớn bìa rừng nhiệt đới càng uốn lượn tự nhiên",
+              "min": 0,
+              "max": 80,
+              "step": 1,
+              "default": 32
+            }
+          ]
+        },
+        {
+          "name": "Mưa & Tán rừng",
+          "params": [
+            {
+              "key": "rain",
+              "label": "Mưa & Gợn nước",
+              "hint": "Mật độ hạt mưa rơi xiên và những vòng gợn sóng lan tỏa trên các vũng nước",
+              "min": 0,
+              "max": 1,
+              "step": 0.05,
+              "default": 0.65,
+              "format": "percent"
+            },
+            {
+              "key": "mist",
+              "label": "Sương mù rừng mưa",
+              "hint": "Làn sương mỏng bảng lảng trôi qua các tán cây và trảng cỏ",
+              "min": 0,
+              "max": 1,
+              "step": 0.05,
+              "default": 0.4,
+              "format": "percent"
+            },
+            {
+              "key": "wind",
+              "label": "Gió rừng",
+              "hint": "Độ đung đưa của các tầng lá rừng nhiệt đới trong mưa gió",
+              "min": 0,
+              "max": 3,
+              "step": 0.05,
+              "default": 1,
+              "format": "times"
+            }
+          ]
+        },
+        {
+          "name": "Sinh vật rừng",
+          "params": [
+            {
+              "key": "birds",
+              "label": "Chim nhiệt đới",
+              "hint": "Những chú vẹt xanh và chim bói cá bay lướt qua tán rừng",
+              "min": 0,
+              "max": 8,
+              "step": 1,
+              "default": 3,
+              "unit": "con"
+            },
+            {
+              "key": "fireflies",
+              "label": "Đom đóm rừng",
+              "hint": "Những đốm sáng đom đóm lập lòe dưới bóng râm tán cây nhiệt đới",
+              "min": 0,
+              "max": 15,
+              "step": 1,
+              "default": 6,
+              "unit": "con"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mocchau",
+      "name": "Hoa mận Mộc Châu",
+      "desc": "Đồi cỏ xuân màu nước bao bọc bởi rừng hoa mận trắng tinh khôi trên cao nguyên Mộc Châu, sương sớm bảng lảng và cánh hoa bay trong gió",
+      "page": "mocchau.html",
+      "status": "ready",
+      "product": "free",
+      "thumb": "radial-gradient(ellipse 30% 25% at 48% 52%, #bdd48b 88%, #98b566 95%, transparent 98%), radial-gradient(circle at 18% 26%, #fcfbf7 14%, #dbe6ef 16%, transparent 17%), radial-gradient(circle at 34% 18%, #f8f6f0 12%, #d8e3ec 14%, transparent 15%), radial-gradient(circle at 80% 26%, #fcfbf7 15%, #dbe6ef 17%, transparent 18%), radial-gradient(circle at 74% 80%, #f9f8f3 14%, #d8e3ec 16%, transparent 17%), radial-gradient(circle at 22% 80%, #fcfbf7 13%, #dbe6ef 15%, transparent 16%), linear-gradient(160deg, #6f9458 0%, #587d4b 55%, #46693f 100%)",
+      "groups": [
+        {
+          "name": "Quanh biểu tượng",
+          "params": [
+            {
+              "key": "sigma",
+              "label": "Độ rộng đồi cỏ",
+              "hint": "Phạm vi sườn cỏ xanh mùa xuân bao quanh mỗi biểu tượng",
+              "min": 40,
+              "max": 200,
+              "step": 1,
+              "default": 80,
+              "unit": "px"
+            },
+            {
+              "key": "warp",
+              "label": "Độ uốn sườn đồi",
+              "hint": "0 là thảm cỏ tròn đều, càng lớn ranh giới thung lũng và rừng mận càng uốn lượn tự nhiên",
+              "min": 0,
+              "max": 80,
+              "step": 1,
+              "default": 30
+            }
+          ]
+        },
+        {
+          "name": "Hoa mận & Gió xuân",
+          "params": [
+            {
+              "key": "bloom",
+              "label": "Độ dày hoa mận",
+              "hint": "Mật độ những tán hoa mận trắng nở rộ trên sườn đồi",
+              "min": 0.2,
+              "max": 1,
+              "step": 0.05,
+              "default": 0.8,
+              "format": "percent"
+            },
+            {
+              "key": "petals",
+              "label": "Cánh hoa bay",
+              "hint": "Số lượng cánh hoa mận trắng xoay tròn bay theo làn gió cao nguyên",
+              "min": 0,
+              "max": 1,
+              "step": 0.05,
+              "default": 0.55,
+              "format": "percent"
+            },
+            {
+              "key": "wind",
+              "label": "Gió cao nguyên",
+              "hint": "Tốc độ cành mận đung đưa và cánh hoa trôi trong gió",
+              "min": 0,
+              "max": 3,
+              "step": 0.05,
+              "default": 1,
+              "format": "times"
+            }
+          ]
+        },
+        {
+          "name": "Không gian cao nguyên",
+          "params": [
+            {
+              "key": "mist",
+              "label": "Sương sớm Mộc Châu",
+              "hint": "Làn sương mai dịu nhẹ phủ trên thung lũng và rừng hoa mận",
+              "min": 0,
+              "max": 1,
+              "step": 0.05,
+              "default": 0.35,
+              "format": "percent"
+            },
+            {
+              "key": "birds",
+              "label": "Chim rừng",
+              "hint": "Đàn chim nhỏ sải cánh bay qua biển hoa mận trắng",
+              "min": 0,
+              "max": 8,
+              "step": 1,
+              "default": 3,
+              "unit": "con"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tet-sakura",
+      "adaptive": true,
+      "name": "Hoa anh đào Tết",
+      "desc": "Khoảng sân xuân ấm áp được bao bọc bởi sắc hoa đào và anh đào nở rộ, điểm xuyết đèn lồng đỏ, phong bao lì xì và đàn én mùa xuân",
+      "page": "tet-sakura.html",
+      "status": "ready",
+      "product": "free",
+      "thumb": "radial-gradient(ellipse 30% 25% at 48% 52%, #fbf5ea 88%, #f3e6d2 95%, transparent 98%), radial-gradient(circle at 18% 26%, rgba(244,126,148,0.82) 14%, transparent 15%), radial-gradient(circle at 34% 18%, rgba(250,176,188,0.85) 12%, transparent 13%), radial-gradient(circle at 80% 26%, rgba(240,108,132,0.82) 15%, transparent 16%), radial-gradient(circle at 72% 80%, rgba(248,154,170,0.85) 14%, transparent 15%), radial-gradient(circle at 24% 78%, #e02e34 4.5%, #f8d048 5.2%, transparent 6%), linear-gradient(160deg, #fae8e8 0%, #f6d5da 55%, #f2c2ca 100%)",
+      "groups": [
+        {
+          "name": "Quanh biểu tượng",
+          "params": [
+            {
+              "key": "sigma",
+              "label": "Độ rộng sân xuân",
+              "hint": "Phạm vi khoảng sân giấy tuyên ấm áp bao quanh mỗi biểu tượng",
+              "min": 40,
+              "max": 200,
+              "step": 1,
+              "default": 80,
+              "unit": "px"
+            },
+            {
+              "key": "warp",
+              "label": "Độ uốn cành hoa",
+              "hint": "0 là khoảng sân tròn trịa, càng lớn các nhánh hoa vươn vào càng tự nhiên",
+              "min": 0,
+              "max": 80,
+              "step": 1,
+              "default": 30
+            }
+          ]
+        },
+        {
+          "name": "Hoa đào & Gió xuân",
+          "params": [
+            {
+              "key": "petals",
+              "label": "Cánh đào bay",
+              "hint": "Mật độ cánh hoa đào và anh đào hồng phớt tung bay trong gió xuân",
+              "min": 0,
+              "max": 1,
+              "step": 0.05,
+              "default": 0.65,
+              "format": "percent"
+            },
+            {
+              "key": "wind",
+              "label": "Gió xuân",
+              "hint": "Tốc độ đung đưa của cành đào, đèn lồng đỏ và cánh hoa rơi",
+              "min": 0,
+              "max": 3,
+              "step": 0.05,
+              "default": 1,
+              "format": "times"
+            }
+          ]
+        },
+        {
+          "name": "Không khí Tết",
+          "params": [
+            {
+              "key": "lanterns",
+              "label": "Đèn lồng & Lì xì",
+              "hint": "Số lượng đèn lồng đỏ và phong bao lì xì may mắn treo trên cành hoa",
+              "min": 0,
+              "max": 8,
+              "step": 1,
+              "default": 4,
+              "unit": "cái"
+            },
+            {
+              "key": "swallows",
+              "label": "Chim én mùa xuân",
+              "hint": "Những đôi chim én chao liệng báo hiệu mùa xuân về",
+              "min": 0,
+              "max": 8,
+              "step": 1,
+              "default": 3,
+              "unit": "con"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+/host/bin/
+/host/lib/
+/node_modules/
+/dist/
+/.vs/
+/.vscode/
+/.idea/
+*.log
+.DS_Store
+Thumbs.db
+desktop.ini

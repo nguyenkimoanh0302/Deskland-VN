@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deskland · Bầu trời</title>
+<style>
+  :root { --taskbar: 48px; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #3385cc; }
+  body { font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+  #art { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  #desktop { position: fixed; left: 0; top: 0; right: 0; bottom: var(--taskbar); }
+  #panel, #taskbar, #desktop { display: none; }
+  #ghosts { position: fixed; inset: 0; pointer-events: none; display: none; }
+  body.preview #ghosts { display: block; }
+  .ghost { position: absolute; }
+  .ghost i { position: absolute; left: 50%; top: 4px; width: 48px; height: 48px; margin-left: -24px; border-radius: 9px;
+    background: rgba(255,255,255,.88); box-shadow: 3px 6px 8px rgba(40,60,90,.28); }
+  .ghost b { position: absolute; left: 14%; right: 14%; top: 60px; height: 10px; border-radius: 5px; background: rgba(255,255,255,.75); }
+  #nogl { position: fixed; inset: 0; display: none; place-items: center; color: #fff; font-size: 16px; }
+</style>
+</head>
+<body>
+<canvas id="art"></canvas>
+<div id="desktop"></div>
+<div id="taskbar"><div id="clock"></div></div>
+<div id="nogl">Trình duyệt hiện tại không hỗ trợ WebGL2, không thể chạy hình nền.</div>
+
+<script>
+'use strict';
+
+const CELL_W = 76, CELL_H = 100, GRID_X0 = 4, GRID_Y0 = 6, TASKBAR = 48;
+const STEP = 5;
+const MORPH_MS = 1800;
+
+const QS = new URLSearchParams(location.search);
+const WALL = QS.has('wallpaper');
+const PREVIEW = QS.has('preview');
+const P = {
+  time: 0, sigma: 74, warp: 38, edge: 10, cover: 0.35, flow: 1,
+  birds: 3, plane: 1, moon: 1, stars: 0.6,
+  grain: 1, quality: 2, debug: false, snap: true, cap30: true, adaptive: 1,
+};
+const DEFAULTS = Object.assign({}, P);
+const DISPLAY_KEYS = ['adaptive', 'moon'];
+const OPTION_KEYS = { time: 4, plane: 3, moon: 2 };
+const SLIDERS = [
+  { key: 'sigma', label: 'Kích thước cụm mây', min: 40, max: 200, step: 1,    act: 'field' },
+  { key: 'cover', label: 'Mây trên bầu trời', min: 0,  max: 1,   step: 0.01 },
+  { key: 'flow',  label: 'Tốc độ trôi',       min: 0,  max: 3,   step: 0.05 },
+  { key: 'birds', label: 'Đàn chim bay',      min: 0,  max: 8,   step: 1,    act: 'birds' },
+  { key: 'stars', label: 'Kích thước ngôi sao', min: 0, max: 1,   step: 0.05 },
+];
+
+let seed = (Math.random() * 1e6) | 0;
+function hash2(x, y, k = 0) {
+  let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(seed + k, 2246822519);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+function vnoise(x, y, k = 0) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  const a = hash2(ix, iy, k), b = hash2(ix + 1, iy, k), c = hash2(ix, iy + 1, k), d = hash2(ix + 1, iy + 1, k);
+  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+}
+function fbm(x, y, k = 0) {
+  let a = 0.5, s = 0;
+  for (let i = 0; i < 4; i++) { s += a * vnoise(x, y, k + i * 7); x = x * 2.03 + 17.1; y = y * 2.03 + 17.1; a *= 0.5; }
+  return s;
+}
+function tileNoise(x, y, px, py, k) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  const m = (v, p) => ((v % p) + p) % p;
+  const x0 = m(ix, px), x1 = m(ix + 1, px), y0 = m(iy, py), y1 = m(iy + 1, py);
+  const a = hash2(x0, y0, k), b = hash2(x1, y0, k), c = hash2(x0, y1, k), d = hash2(x1, y1, k);
+  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+}
+function tileFbm(u, v, periods, k) {
+  let s = 0, w = 0.5, tw = 0;
+  for (let i = 0; i < periods.length; i++) { s += w * tileNoise(u * periods[i], v * periods[i], periods[i], periods[i], k + i * 13); tw += w; w *= 0.5; }
+  return s / tw;
+}
+function makeNoiseImage() {
+  const S = 256, d = new Uint8Array(S * S * 4);
+  const chans = [[8, 16, 32, 64], [8, 16, 32, 64], [8, 16, 32], [16, 32, 64, 128]];
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const u = x / S, v = y / S, i = (y * S + x) * 4;
+    for (let c = 0; c < 4; c++) {
+      let n = tileFbm(u, v, chans[c], 100 + c * 50);
+      d[i + c] = Math.min(Math.max((n - 0.5) * 1.9 + 0.5, 0), 1) * 255;
+    }
+  }
+  return { S, d };
+}
+
+let W = innerWidth, H = innerHeight, Gw = 1, Gh = 1, NZ = null;
+function buildNoise() {
+  const N = Gw * Gh;
+  NZ = { wx: new Float32Array(N), wy: new Float32Array(N) };
+  for (let gy = 0; gy < Gh; gy++) for (let gx = 0; gx < Gw; gx++) {
+    const i = gy * Gw + gx, x = gx * STEP, y = gy * STEP;
+    NZ.wx[i] = fbm(x * 0.0028, y * 0.0028, 1) - 0.47;
+    NZ.wy[i] = fbm(x * 0.0028, y * 0.0028, 2) - 0.47;
+  }
+}
+function computeField(rects) {
+  const N = Gw * Gh, f1 = new Float32Array(N);
+  const sig = P.sigma, is1 = 1 / (sig * sig);
+  const wa = P.warp * 2.2, wmax = wa * 0.5;
+  for (const r of rects) {
+    const R = 5.5 * sig + Math.max(r.hw, r.hh) * 0.5 + wmax;
+    const gx0 = Math.max(0, Math.floor((r.cx - R) / STEP)), gx1 = Math.min(Gw - 1, Math.ceil((r.cx + R) / STEP));
+    const gy0 = Math.max(0, Math.floor((r.cy - R) / STEP)), gy1 = Math.min(Gh - 1, Math.ceil((r.cy + R) / STEP));
+    const chw = r.hw * 0.5, chh = r.hh * 0.5;
+    for (let gy = gy0; gy <= gy1; gy++) for (let gx = gx0; gx <= gx1; gx++) {
+      const i = gy * Gw + gx;
+      const qx = gx * STEP + NZ.wx[i] * wa, qy = gy * STEP + NZ.wy[i] * wa;
+      let dx = Math.abs(qx - r.cx) - chw, dy = Math.abs(qy - r.cy) - chh;
+      if (dx < 0) dx = 0; if (dy < 0) dy = 0;
+      f1[i] += Math.exp(-(dx * dx + dy * dy) * is1);
+    }
+  }
+  const c0 = Math.sqrt(-Math.log(0.35)), s = new Float32Array(N), fMin = Math.exp(-30);
+  for (let i = 0; i < N; i++) {
+    const g = Math.log(Math.max(f1[i], fMin));
+    s[i] = sig * (Math.sqrt(Math.max(-g, 0)) - c0) - sig * 0.6 * Math.max(g, 0);
+  }
+  return { s };
+}
+function sampleArr(a, x, y) {
+  const fx = Math.min(Math.max(x / STEP, 0), Gw - 1.001), fy = Math.min(Math.max(y / STEP, 0), Gh - 1.001);
+  const ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy, i = iy * Gw + ix;
+  return (a[i] * (1 - tx) + a[i + 1] * tx) * (1 - ty) + (a[i + Gw] * (1 - tx) + a[i + Gw + 1] * tx) * ty;
+}
+
+const VS = `#version 300 es
+void main() {
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+const FS = `#version 300 es
+precision highp float;
+uniform sampler2D uNoise, uFA, uFB;
+uniform vec2 uRes, uGrid;
+uniform float uScale, uSeed, uStep, uMix, uTime, uDebug, uEdge;
+uniform float uPhase;        // 1.0 = ban ngay, 2.0 = hoang hon, 3.0 = ban dem
+uniform float uMoon, uStars;
+uniform vec4 uPlane;         // x, y, huong(1 hoac -1), chieu dai vet khoi(>0 la co may bay)
+uniform highp sampler2D uCirc;
+uniform vec2 uCGrid;
+uniform float uCellG;
+uniform float uBirdN;
+uniform vec4 uBird[8];
+out vec4 o;
+
+const int CIRC_K = 36;
+const vec2 LIGHT = vec2(-0.6, -0.8);
+
+float hash2(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+float ss(float a, float b, float x) { float t = clamp((x - a) / (b - a), 0.0, 1.0); return t * t * (3.0 - 2.0 * t); }
+vec4 N(vec2 p, float scale) { return texture(uNoise, p / scale + uSeed * 0.013); }
+float fieldS(sampler2D t, vec2 p) { return texture(t, (p / uStep + 0.5) / uGrid).r; }
+float smin(float a, float b, float k) { float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0); return mix(b, a, h) - k * h * (1.0 - h); }
+mat2 rot(float a) { float c = cos(a), s = sin(a); return mat2(c, s, -s, c); }
+
+float cloudDist(vec2 q, bool front, inout vec4 fc) {
+  float sF = mix(fieldS(uFA, q), fieldS(uFB, q), uMix);
+  float d = sF - uEdge + 0.6 * 95.0;
+  ivec2 cell = ivec2(floor(q / uCellG)) + 4;
+  if (cell.x < 0 || cell.y < 0 || float(cell.x) >= uCGrid.x || float(cell.y) >= uCGrid.y) return d;
+  for (int k = 0; k < CIRC_K; k++) {
+    vec4 c = texelFetch(uCirc, ivec2(cell.x * CIRC_K + k, cell.y), 0);
+    if (c.z <= 0.0) break;
+    float di = length(q - c.xy) - c.z;
+    d = smin(d, di, 6.0);
+    if (front && di < 0.0 && c.y > fc.y) fc = c;
+  }
+  return d;
+}
+float cloudDist(vec2 q) { vec4 fc = vec4(0.0, -1e9, 0.0, 0.0); return cloudDist(q, false, fc); }
+
+vec3 gullSD(vec2 q, float span) {
+  float body = (length((q - vec2(0.8, 0.0)) / vec2(6.2, 1.9)) - 1.0) * 1.9;
+  float tail = max(abs(q.y) - 1.4 - (-q.x - 4.0) * 0.25, max(-q.x - 8.5, q.x + 4.0));
+  float y = abs(q.y), reach = 15.0 * span;
+  float u = clamp((y - 1.0) / reach, 0.0, 1.0);
+  float lead = 1.0 + 1.3 * sin(u * 3.14159) - 4.0 * u * u;
+  float chord = mix(4.4, 1.3, u);
+  float wing = max(max(q.x - lead, lead - chord - q.x), y - reach - 1.0);
+  return vec3(min(body, tail), wing, u);
+}
+
+// Máy bay nhỏ (x hướng về phía trước)
+float planeSD(vec2 q) {
+  float fus = (length(q / vec2(11.0, 2.0)) - 1.0) * 2.0;
+  vec2 wq = vec2(q.x + abs(q.y) * 0.45 - 1.0, abs(q.y));
+  float wing = max(abs(wq.x) - 2.3, wq.y - 9.5);
+  vec2 tq = vec2(q.x + abs(q.y) * 0.35 + 8.5, abs(q.y));
+  float tail = max(abs(tq.x) - 1.5, tq.y - 4.0);
+  return min(fus, min(wing, tail));
+}
+
+void main() {
+  vec2 p = vec2(gl_FragCoord.x, uRes.y * uScale - gl_FragCoord.y) / uScale;
+  float vy = clamp(p.y / max(uRes.y, 1.0), 0.0, 1.0);
+
+  // Bảng màu bầu trời và mây theo ba khung giờ
+  float isDusk = clamp(1.0 - abs(uPhase - 2.0), 0.0, 1.0);
+  float isNight = clamp(uPhase - 2.0, 0.0, 1.0);
+  float isDay = clamp(2.0 - uPhase, 0.0, 1.0);
+
+  vec3 daySky = mix(vec3(0.20, 0.52, 0.80), vec3(0.52, 0.76, 0.92), pow(vy, 0.85));
+  vec3 duskSky = mix(vec3(0.24, 0.27, 0.50), mix(vec3(0.86, 0.48, 0.42), vec3(0.97, 0.76, 0.48), ss(0.35, 1.0, vy)), ss(0.0, 0.75, vy));
+  vec3 nightSky = mix(vec3(0.05, 0.09, 0.20), vec3(0.12, 0.21, 0.38), pow(vy, 0.9));
+  vec3 col = daySky * isDay + duskSky * isDusk + nightSky * isNight;
+
+  // Bầu trời sao ban đêm và tia sáng chữ thập
+  if (isNight > 0.01 && uStars > 0.01) {
+    for (int L = 0; L < 2; L++) {
+      float cs = L == 0 ? 52.0 : 84.0;
+      vec2 q = p / cs + float(L) * 19.7;
+      vec2 cell = floor(q), f = fract(q);
+      vec2 sc = cell + float(L) * 43.1 + uSeed * 0.1;
+      float h = hash2(sc);
+      if (h > (L == 0 ? 0.24 : 0.16) * (0.4 + 0.8 * uStars)) continue;
+      vec2 ctr = 0.18 + 0.64 * vec2(hash2(sc + 1.7), hash2(sc + 3.1));
+      vec2 dp = (f - ctr) * cs;
+      float tw = 0.55 + 0.45 * sin(uTime * (1.2 + 1.8 * hash2(sc + 5.3)) + h * 25.0);
+      float sz = (0.7 + 1.3 * uStars) * (L == 1 ? 1.35 : 0.9);
+      float dotStar = (1.0 - ss(0.3 * sz, 1.5 * sz, length(dp))) * tw;
+      // Tia sáng chữ thập (ngôi sao lớn)
+      float cross = 0.0;
+      if (L == 1 && uStars > 0.35) {
+        float cx = (1.0 - ss(0.0, 0.9, abs(dp.y))) * (1.0 - ss(0.0, 5.5 * uStars, abs(dp.x)));
+        float cy = (1.0 - ss(0.0, 0.9, abs(dp.x))) * (1.0 - ss(0.0, 5.5 * uStars, abs(dp.y)));
+        cross = max(cx, cy) * tw * 0.75;
+      }
+      col = mix(col, vec3(0.98, 0.99, 1.0), max(dotStar, cross) * isNight);
+    }
+  }
+
+  // Trăng lưỡi liềm và quầng trăng ban đêm
+  if (isNight > 0.01 && uMoon > 0.5) {
+    vec2 mp = vec2(uRes.x * 0.82, uRes.y * 0.18);
+    float md1 = length(p - mp) - 34.0;
+    float md2 = length(p - (mp + vec2(-13.0, -8.0))) - 30.0;
+    float crescent = max(md1, -md2);
+    float glow = exp(-max(md1, 0.0) / 55.0) * 0.25;
+    col += vec3(0.55, 0.68, 0.95) * glow * isNight;
+    col = mix(col, vec3(1.0, 0.97, 0.84), ss(1.0, -1.0, crescent) * isNight);
+  }
+
+  // Máy bay và vệt khói trắng
+  if (uPlane.w > 0.5) {
+    vec2 pp = uPlane.xy;
+    float dir = uPlane.z;
+    vec2 qp = vec2((p.x - pp.x) * dir, p.y - pp.y);
+    if (qp.x < -10.0 && qp.x > -uPlane.w && abs(qp.y) < 12.0) {
+      float tTrail = (-qp.x - 10.0) / uPlane.w;
+      float wTrail = 1.4 + tTrail * 3.8 + (N(p, 90.0).r - 0.5) * 1.8;
+      float aTrail = (1.0 - ss(0.4, wTrail, abs(qp.y))) * (1.0 - tTrail) * 0.55;
+      vec3 trailC = isDusk > 0.5 ? vec3(1.0, 0.86, 0.76) : (isNight > 0.5 ? vec3(0.65, 0.75, 0.92) : vec3(0.98, 0.99, 1.0));
+      col = mix(col, trailC, aTrail);
+    }
+    if (dot(qp, qp) < 250.0) {
+      float pd = planeSD(qp);
+      vec3 pc = isNight > 0.5 ? vec3(0.82, 0.88, 0.96) : vec3(0.99, 0.99, 1.0);
+      col = mix(col, pc, ss(0.6, -0.6, pd));
+    }
+  }
+
+  // ---------- Cụm mây (tự động đổi sắc độ theo khung giờ) ----------
+  vec3 cHi = vec3(0.99, 1.0, 1.0) * isDay + vec3(1.0, 0.91, 0.78) * isDusk + vec3(0.76, 0.84, 0.96) * isNight;
+  vec3 cBody = vec3(0.95, 0.98, 1.0) * isDay + vec3(0.96, 0.76, 0.68) * isDusk + vec3(0.32, 0.42, 0.62) * isNight;
+  vec3 cSh = vec3(0.76, 0.87, 0.96) * isDay + vec3(0.72, 0.50, 0.58) * isDusk + vec3(0.20, 0.28, 0.46) * isNight;
+
+  vec4 fc = vec4(0.0, -1e9, 0.0, 0.0);
+  float d = cloudDist(p, true, fc);
+  if (d < 1.5) {
+    float hi = d > -22.0 ? ss(-1.0, 1.0, cloudDist(p + LIGHT * 20.0)) : 0.0;
+    vec3 cc = fc.y > -1e8 ? mix(cBody, cSh, fc.w * 0.72) : mix(cBody, cSh, 0.48);
+    cc = mix(cc, cHi, hi);
+    col = mix(col, cc, ss(1.0, -1.0, d));
+  }
+
+  // ---------- Đàn chim bay (xuất hiện ban ngày và hoàng hôn) ----------
+  if (isNight < 0.5) {
+    for (int i = 0; i < 8; i++) {
+      if (float(i) >= uBirdN) break;
+      vec4 b = uBird[i];
+      vec2 d0 = p - b.xy;
+      if (dot(d0, d0) < 400.0) {
+        vec3 g = gullSD(rot(-b.z) * d0, b.w);
+        vec3 wingC = isDusk > 0.5 ? vec3(0.32, 0.24, 0.34) : mix(vec3(0.84, 0.88, 0.92), vec3(0.24, 0.28, 0.34), ss(0.72, 0.8, g.z));
+        vec3 bodyC = isDusk > 0.5 ? vec3(0.28, 0.20, 0.30) : vec3(0.99, 0.99, 1.0);
+        col = mix(col, wingC, ss(0.6, -0.6, g.y));
+        col = mix(col, bodyC, ss(0.6, -0.6, g.x));
+      }
+    }
+  }
+
+  col *= 1.0 + (hash2(floor(p * (0.8 * max(uScale, 1.0)))) - 0.5) * 0.028;
+  if (uDebug > 0.5) col = mix(col, vec3(0.9, 0.15, 0.15), 1.0 - ss(0.0, 1.5, abs(d)));
+  o = vec4(col, 1.0);
+}`;
+
+const cv = document.getElementById('art');
+const gl = cv.getContext('webgl2', { antialias: false });
+if (!gl) document.getElementById('nogl').style.display = 'grid';
+function program(fs) {
+  const mk = (type, src) => {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { console.error(gl.getShaderInfoLog(s)); throw new Error('shader'); }
+    return s;
+  };
+  const p = gl.createProgram();
+  gl.attachShader(p, mk(gl.VERTEX_SHADER, VS));
+  gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(p));
+  const U = {};
+  const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const nm = gl.getActiveUniform(p, i).name.replace(/\[0\]$/, ''); U[nm] = gl.getUniformLocation(p, nm); }
+  return { p, U };
+}
+const PR = program(FS);
+gl.bindVertexArray(gl.createVertexArray());
+
+let noiseTex = null;
+function buildNoiseTex() {
+  const { S, d } = makeNoiseImage();
+  noiseTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, noiseTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, S, S, 0, gl.RGBA, gl.UNSIGNED_BYTE, d);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+}
+const f32 = new Float32Array(1), u32 = new Uint32Array(f32.buffer);
+function toHalf(v) {
+  f32[0] = v; const x = u32[0];
+  const sign = (x >>> 16) & 0x8000, e = ((x >>> 23) & 0xff) - 112, m = x & 0x7fffff;
+  if (e <= 0) return sign;
+  if (e >= 31) return sign | 0x7c00;
+  return sign | (e << 10) | (m >>> 13);
+}
+const ftex = [null, null];
+let fromI = 0, toI = 0, morphT0 = -1e9, morphDur = MORPH_MS, FA = null, FB = null;
+function allocField() {
+  for (let i = 0; i < 2; i++) {
+    if (ftex[i]) gl.deleteTexture(ftex[i]);
+    ftex[i] = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, ftex[i]);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, Gw, Gh, 0, gl.RED, gl.HALF_FLOAT, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  }
+}
+function uploadField(i, Fd) {
+  const d = new Uint16Array(Gw * Gh);
+  for (let k = 0; k < d.length; k++) d[k] = toHalf(Fd.s[k]);
+  gl.bindTexture(gl.TEXTURE_2D, ftex[i]);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, Gw, Gh, gl.RED, gl.HALF_FLOAT, d);
+}
+
+let icons = [];
+const iconRects = () => icons.map(ic => ({ cx: ic.x + ic.w / 2, cy: ic.y + ic.h / 2, hw: ic.w / 2 - 4, hh: ic.h / 2 - 2 }));
+function commit(fromEmpty = false) {
+  const nf = computeField(P.adaptive ? iconRects() : []);
+  const target = 1 - toI;
+  if (fromEmpty) { FA = computeField([]); uploadField(toI, FA); }
+  else FA = FB;
+  FB = nf;
+  uploadField(target, FB);
+  fromI = toI; toI = target;
+  morphT0 = performance.now();
+  morphDur = fromEmpty ? 2600 : MORPH_MS;
+}
+function refresh() {
+  FA = FB = computeField(P.adaptive ? iconRects() : []);
+  uploadField(toI, FB);
+  fromI = toI; morphT0 = -1e9;
+}
+
+let curMix = 1;
+const curS = (x, y) => FB ? sampleArr(FA.s, x, y) * (1 - curMix) + sampleArr(FB.s, x, y) * curMix : 999;
+
+/* ======================================================================
+   Vòng tròn mây
+   ====================================================================== */
+const CELL_G = 48, CIRC_K = 36;
+let circTex = null, circBuf = null, cgW = 0, cgH = 0;
+const rnd1 = (x, y, k) => hash2(x, y, k);
+const skyClouds = [];
+let flowT = 0;
+const sstep = (a, b, x) => { const t = Math.min(Math.max((x - a) / (b - a), 0), 1); return t * t * (3 - 2 * t); };
+
+function makeSkyCloud(x) {
+  const rnd = Math.random, R = 95 * 1.2;
+  const n = 3 + Math.floor(rnd() * 3), w = R * (1.0 + n * 0.5);
+  const body = [];
+  for (let i = 0; i < n; i++) {
+    const t = n === 1 ? 0 : i / (n - 1) - 0.5, r = R * (0.6 - Math.abs(t) * 0.45 + rnd() * 0.12);
+    body.push([t * w, -r * 0.55, r]);
+  }
+  for (let i = 0; i < n - 1; i++) {
+    const t = n === 2 ? 0 : i / (n - 2) - 0.5, r = R * (0.55 + rnd() * 0.25);
+    body.push([t * w * 0.6 + (rnd() - 0.5) * R * 0.4, -R * (0.5 + rnd() * 0.35), r]);
+  }
+  if (rnd() < 0.6) body.push([(rnd() - 0.5) * w * 0.3, -R * 1.05, R * (0.4 + rnd() * 0.15)]);
+  const ciOf = (px, py) => { let d = 1e9; for (const [cx, cy, r] of body) d = Math.min(d, Math.hypot(px - cx, py - cy) - r); return d; };
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  for (const [cx, cy, r] of body) { x0 = Math.min(x0, cx - r); x1 = Math.max(x1, cx + r); y0 = Math.min(y0, cy - r); y1 = Math.max(y1, cy + r); }
+  const circles = [];
+  const S = 0.62 / 1.2, Rm = R * S, Gb = 90;
+  const layer = (G, size, band, bandFn, attach) => {
+    for (let gy = Math.floor((y0 - G) / G); gy <= Math.ceil((y1 + G) / G); gy++) for (let gx = Math.floor((x0 - G) / G); gx <= Math.ceil((x1 + G) / G); gx++) {
+      const px = (gx + 0.1 + rnd() * 0.8) * G, py = (gy + 0.1 + rnd() * 0.8) * G;
+      const ci = ciOf(px, py);
+      if (ci > 0 || ci < band) continue;
+      let r = G * (size[0] + (size[1] - size[0]) * rnd()) * bandFn(ci);
+      if (attach) {
+        let att = 0;
+        for (const [cx, cy, cr] of circles) att = Math.max(att, sstep(0.2 * r, 0.6 * r, cr + r - Math.hypot(cx - px, cy - py)));
+        r *= att;
+      }
+      r *= sstep(5, 11, r);
+      if (r > 0.5) circles.push([px, py, r, rnd()]);
+    }
+  };
+  layer(Gb, [0.55, 0.85], -1e9, ci => sstep(-0.2 * Gb, -0.65 * Gb, ci), false);
+  layer(Rm, [0.6, 0.95], -1e9, ci => sstep(-0.1 * Rm, -0.7 * Rm, ci), false);
+  for (const [cx, cy, r] of body) if (r > 0.75 * Rm) circles.push([cx, cy, r - 0.75 * Rm, rnd()]);
+  layer(34 * 0.85, [0.5, 0.9], -1.0 * Rm, ci => sstep(-0.05 * Rm, -0.35 * Rm, ci) * (1 - sstep(-0.7 * Rm, -1.0 * Rm, ci)), true);
+  layer(24 * 0.85, [0.45, 0.8], -0.6 * Rm, ci => sstep(0, -0.2 * Rm, ci) * (1 - sstep(-0.4 * Rm, -0.6 * Rm, ci)), true);
+  const y = 80 + rnd() * (H - TASKBAR - 120);
+  return { x, y, circles, v: 0.7 + rnd() * 0.6, grow: 0, hw: Math.max(-x0, x1) + 20 };
+}
+function stepSkyClouds(dt) {
+  flowT += dt * P.flow;
+  const want = Math.round(P.cover * 10);
+  const alive = skyClouds.filter(c => !c.dying);
+  for (let i = want; i < alive.length; i++) alive[i].dying = true;
+  for (let n = alive.length; n < want; n++) {
+    let best = null, bestD = -1;
+    for (let k = 0; k < 20; k++) {
+      const c = makeSkyCloud(Math.random() * W);
+      const dmin = Math.min(1e9, ...skyClouds.map(o => Math.hypot((o.x - c.x) / 1.6, o.y - c.y)));
+      if (dmin > bestD) { bestD = dmin; best = c; }
+    }
+    skyClouds.push(best);
+  }
+  for (let i = skyClouds.length - 1; i >= 0; i--) {
+    const c = skyClouds[i];
+    c.x += P.flow * 10 * c.v * dt;
+    c.grow = c.dying ? c.grow - dt * 0.5 : Math.min(1, c.grow + dt * 0.5);
+    if (c.grow <= 0) { skyClouds.splice(i, 1); continue; }
+    if (c.x - c.hw > W + 50) { const n = makeSkyCloud(-c.hw - 50); n.grow = 1; skyClouds[i] = n; }
+  }
+}
+
+let massList = null, massT = -1e9;
+function buildMassCircles() {
+  const list = [], R = 95, big = new Map();
+  const layer = (G, k0, size, band, isBig) => {
+    if (!FB) return;
+    for (let cy = -Math.ceil(2 * R / G); cy <= Math.ceil((H + 2 * R) / G); cy++) for (let cx = -Math.ceil(2 * R / G); cx <= Math.ceil((W + 2 * R) / G); cx++) {
+      const ox = rnd1(cx, cy, k0), oy = rnd1(cx, cy, k0 + 1), rr = rnd1(cx, cy, k0 + 2), ph = rnd1(cx, cy, k0 + 3);
+      const x = (cx + 0.1 + ox * 0.8) * G, y = (cy + 0.1 + oy * 0.8) * G;
+      const ci = curS(x, y) - P.edge;
+      if (ci > 0 || ci < band[1] - 10) continue;
+      let r = G * (size[0] + (size[1] - size[0]) * rr) * band[2](ci);
+      const gap = ci + 0.6 * R;
+      let att = sstep(gap - 4, gap + 12, r);
+      if (!isBig) {
+        const bx = Math.floor(x / R), by = Math.floor(y / R);
+        for (let j = by - 1; j <= by + 1; j++) for (let i = bx - 1; i <= bx + 1; i++) {
+          const o = big.get(i + ',' + j);
+          if (!o) continue;
+          const ov = o[2] + r - Math.hypot(o[0] - x, o[1] - y);
+          att = Math.max(att, sstep(0.2 * r, 0.6 * r, ov));
+        }
+      }
+      r *= att * sstep(5, 11, r);
+      if (r < 0.5) continue;
+      if (isBig) big.set(cx + ',' + cy, [x, y, r]);
+      list.push(x, y, r * (1 + 0.04 * Math.sin(flowT * (0.09 + 0.035 * ph) + ph * 6.283)), ph);
+    }
+  };
+  layer(R, 1, [0.55, 0.9], [0, -1e9, ci => sstep(-0.15 * R, -0.8 * R, ci)], true);
+  layer(34, 11, [0.5, 0.9], [0, -1.0 * R, ci => sstep(-0.05 * R, -0.3 * R, ci) * (1 - sstep(-0.7 * R, -1.0 * R, ci))], false);
+  layer(24, 21, [0.45, 0.8], [0, -0.6 * R, ci => sstep(0, -0.15 * R, ci) * (1 - sstep(-0.4 * R, -0.6 * R, ci))], false);
+  return list;
+}
+const wobX = (x, y, r, ph) => (4.5 + 0.12 * r) * (0.85 * Math.sin(flowT * 0.24 + x * 0.011 + y * 0.004) + 0.3 * Math.sin(flowT * 0.3 + ph * 6.283));
+const wobY = (x, y, r, ph) => (4.5 + 0.12 * r) * (0.65 * Math.sin(flowT * 0.2 + y * 0.013 - x * 0.006 + 1.7) + 0.25 * Math.cos(flowT * 0.28 + ph * 6.283));
+function uploadCircles(t) {
+  gl.activeTexture(gl.TEXTURE3);
+  const gw = Math.ceil(W / CELL_G) + 7, gh = Math.ceil(H / CELL_G) + 7;
+  if (!circTex || gw !== cgW || gh !== cgH) {
+    cgW = gw; cgH = gh;
+    if (circTex) gl.deleteTexture(circTex);
+    circTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, circTex);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, gw * CIRC_K, gh);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    circBuf = new Float32Array(gw * CIRC_K * gh * 4);
+  }
+  const morphing = curMix < 1 || !massList || massList.W !== W || massList.H !== H;
+  if (morphing || t - massT > 0.5) { massList = buildMassCircles(); massList.W = W; massList.H = H; massT = t; }
+  const list = massList.slice();
+  for (let i = 0; i < list.length; i += 4) {
+    const x = list[i], y = list[i + 1], r = list[i + 2], ph = list[i + 3];
+    list[i] = x + wobX(x, y, r, ph); list[i + 1] = y + wobY(x, y, r, ph);
+  }
+  for (const c of skyClouds) {
+    const g = c.grow * c.grow * (3 - 2 * c.grow);
+    c.circles.forEach(([dx, dy, r, ph], i) => {
+      const rb = r * g * (1 + 0.04 * Math.sin(flowT * (0.09 + 0.035 * ph) + ph * 6.283 + i));
+      if (rb > 0.5) list.push(c.x + dx + wobX(dx, dy, r, ph), c.y + dy + wobY(dx, dy, r, ph), rb, ph);
+    });
+  }
+  circBuf.fill(0);
+  const cnt = new Uint8Array(gw * gh);
+  const order = [];
+  for (let i = 0; i < list.length; i += 4) order.push(i);
+  order.sort((a, b) => list[b + 2] - list[a + 2]);
+  for (const i of order) {
+    const x = list[i], y = list[i + 1], r = list[i + 2] + 6;
+    const x0 = Math.max(0, Math.floor((x - r) / CELL_G) + 4), x1 = Math.min(gw - 1, Math.floor((x + r) / CELL_G) + 4);
+    const y0 = Math.max(0, Math.floor((y - r) / CELL_G) + 4), y1 = Math.min(gh - 1, Math.floor((y + r) / CELL_G) + 4);
+    for (let gy = y0; gy <= y1; gy++) for (let gx = x0; gx <= x1; gx++) {
+      const ci = gy * gw + gx;
+      const nx = Math.max((gx - 4) * CELL_G, Math.min(x, (gx - 3) * CELL_G)), ny = Math.max((gy - 4) * CELL_G, Math.min(y, (gy - 3) * CELL_G));
+      if ((nx - x) * (nx - x) + (ny - y) * (ny - y) > r * r) continue;
+      if (cnt[ci] >= CIRC_K) continue;
+      const o = ((gy * gw + gx) * CIRC_K + cnt[ci]++) * 4;
+      circBuf[o] = x; circBuf[o + 1] = y; circBuf[o + 2] = list[i + 2]; circBuf[o + 3] = list[i + 3];
+    }
+  }
+  gl.bindTexture(gl.TEXTURE_2D, circTex);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gw * CIRC_K, gh, gl.RGBA, gl.FLOAT, circBuf);
+}
+
+/* ======================================================================
+   Chim bay và máy bay nhỏ
+   ====================================================================== */
+const birds = [];
+const turnToward = (h, target, rate) => { let d = target - h; d = Math.atan2(Math.sin(d), Math.cos(d)); return h + Math.sign(d) * Math.min(Math.abs(d), rate); };
+function spawnBird(fromEdge) {
+  const H2 = H - TASKBAR;
+  let x = Math.random() * W, y = Math.random() * H2;
+  if (fromEdge) {
+    const side = Math.floor(Math.random() * 4);
+    if (side === 0) x = -40; else if (side === 1) x = W + 40; else if (side === 2) y = -40; else y = H2 + 40;
+  }
+  const h = Math.atan2(H2 / 2 - y, W / 2 - x) + (Math.random() - 0.5) * 1.2;
+  return { x, y, h, v: 36 + Math.random() * 16, mode: 0, modeT: 2 + Math.random() * 4, ph: 0, flap: false, flapT: Math.random() * 3, wander: Math.random() * 100 };
+}
+function syncBirds(fromEdge = true) {
+  const want = Math.max(0, Math.min(8, Math.round(P.birds)));
+  while (birds.length > want) birds.pop();
+  while (birds.length < want) birds.push(spawnBird(fromEdge));
+}
+function stepBirds(dt) {
+  const H2 = H - TASKBAR, m = 90;
+  birds.forEach((b, i) => {
+    if ((b.modeT -= dt) <= 0) {
+      b.mode = Math.random() < 0.4 ? (Math.random() < 0.5 ? -1 : 1) : 0;
+      b.modeT = b.mode ? 4 + Math.random() * 6 : 3 + Math.random() * 5;
+    }
+    b.wander += dt * 0.4;
+    if (b.x < -m || b.x > W + m || b.y < -m || b.y > H2 + m)
+      b.h = turnToward(b.h, Math.atan2(H2 / 2 - b.y, W / 2 - b.x), 1.3 * dt);
+    else b.h += (b.mode * 0.55 + (vnoise(b.wander, i * 7.3) - 0.5) * 0.8) * dt;
+    if ((b.flapT -= dt) <= 0) { b.flap = !b.flap; b.flapT = b.flap ? 0.8 + Math.random() * 1.2 : 2.5 + Math.random() * 4; }
+    if (b.flap || Math.cos(b.ph) < 0.97) b.ph = (b.ph + dt * 9) % (Math.PI * 2);
+    const v = b.v * (b.flap ? 1.15 : 1);
+    b.x += Math.cos(b.h) * v * dt; b.y += Math.sin(b.h) * v * dt;
+  });
+}
+
+let planeState = { active: false, x: 0, y: 120, dir: 1, wait: 3 };
+function stepPlane(dt) {
+  if (P.plane === 0) { planeState.active = false; return; }
+  if (!planeState.active) {
+    planeState.wait -= dt * (P.plane === 2 ? 2.5 : 1);
+    if (planeState.wait <= 0) {
+      planeState.active = true;
+      planeState.dir = Math.random() < 0.5 ? 1 : -1;
+      planeState.x = planeState.dir > 0 ? -40 : W + 40;
+      planeState.y = 50 + Math.random() * Math.max(80, H * 0.25);
+    }
+  } else {
+    planeState.x += planeState.dir * 52 * dt;
+    if ((planeState.dir > 0 && planeState.x > W + 280) || (planeState.dir < 0 && planeState.x < -280)) {
+      planeState.active = false;
+      planeState.wait = P.plane === 2 ? 4 + Math.random() * 6 : 14 + Math.random() * 16;
+    }
+  }
+}
+
+function effectivePhase() {
+  if (P.time === 1) return 1.0;
+  if (P.time === 2) return 2.0;
+  if (P.time === 3) return 3.0;
+  const now = new Date(), hr = now.getHours() + now.getMinutes() / 60;
+  if (hr >= 7 && hr < 17.5) return 1.0;
+  if (hr >= 17.5 && hr < 19.0) return 2.0;
+  if (hr >= 6 && hr < 7) return 2.0;
+  return 3.0;
+}
+
+function resize() {
+  W = innerWidth; H = innerHeight;
+  const scale = PREVIEW ? 0.38 : Math.min(devicePixelRatio || 1, 0.72);
+  const box = cv.getBoundingClientRect();
+  cv.width = Math.round((box.width || W) * scale); cv.height = Math.round((box.height || H) * scale); cv._scale = scale;
+  Gw = Math.ceil(W / STEP) + 2; Gh = Math.ceil(H / STEP) + 2;
+  buildNoise();
+  allocField();
+}
+
+const T0 = performance.now();
+let lastT = 0, frameN = 0, paused = false;
+const birdBuf = new Float32Array(32);
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (paused) { lastT = 0; return; }
+  if (P.cap30 && now - lastT < 40) return;
+  const dt = lastT ? Math.min((now - lastT) / 1000, 0.1) : 0.03;
+  lastT = now;
+  const e = Math.min((now - morphT0) / morphDur, 1);
+  curMix = e < 0.5 ? 2 * e * e : 1 - Math.pow(-2 * e + 2, 2) / 2;
+  stepSkyClouds(dt);
+  stepBirds(dt);
+  stepPlane(dt);
+  draw(now);
+  frameN++;
+}
+function draw(now) {
+  uploadCircles((now - T0) / 1000);
+  birdBuf.fill(0);
+  birds.forEach((b, i) => birdBuf.set([b.x, b.y, b.h, 0.68 + 0.32 * Math.cos(b.ph)], i * 4));
+
+  const { p, U } = PR;
+  gl.useProgram(p);
+  gl.viewport(0, 0, cv.width, cv.height);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, noiseTex);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, ftex[fromI]);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, ftex[toI]);
+  gl.uniform1i(U.uNoise, 0); gl.uniform1i(U.uFA, 1); gl.uniform1i(U.uFB, 2);
+  gl.uniform2f(U.uRes, cv.width / cv._scale, cv.height / cv._scale);
+  gl.uniform2f(U.uGrid, Gw, Gh);
+  gl.uniform1f(U.uScale, cv._scale);
+  gl.uniform1f(U.uSeed, (seed % 997) * 0.37);
+  gl.uniform1f(U.uStep, STEP);
+  gl.uniform1f(U.uMix, curMix);
+  gl.uniform1f(U.uTime, (now - T0) / 1000);
+  gl.uniform1f(U.uDebug, P.debug ? 1 : 0);
+  gl.uniform1f(U.uPhase, effectivePhase());
+  gl.uniform1f(U.uMoon, P.moon);
+  gl.uniform1f(U.uStars, P.stars);
+  gl.uniform4f(U.uPlane, planeState.x, planeState.y, planeState.dir, planeState.active ? 220 : 0);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, circTex); gl.uniform1i(U.uCirc, 3);
+  gl.uniform2f(U.uCGrid, cgW, cgH); gl.uniform1f(U.uCellG, CELL_G);
+  gl.uniform1f(U.uEdge, P.edge);
+  gl.uniform1f(U.uBirdN, birds.length); gl.uniform4fv(U.uBird, birdBuf);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+let iconsSeen = !(WALL || PREVIEW);
+function reseed(v) {
+  seed = v; buildNoise();
+  if (!iconsSeen) return;
+  commit(true);
+}
+let resizeT = 0;
+addEventListener('resize', () => {
+  clearTimeout(resizeT);
+  resizeT = setTimeout(() => { resize(); refresh(); skyClouds.length = 0; }, 100);
+});
+
+resize();
+buildNoiseTex();
+if (WALL || PREVIEW) startHostedMode();
+else { commit(true); syncBirds(false); }
+requestAnimationFrame(frame);
+
+function applySettings(v) {
+  if (typeof v.seed === 'number' && v.seed !== seed) reseed(v.seed);
+  let field = false, adaptiveChanged = false, bird = false;
+  for (const k in v) {
+    const isOpt = k in OPTION_KEYS;
+    if (!isOpt && !SLIDERS.some(s => s.key === k) && !DISPLAY_KEYS.includes(k)) continue;
+    if (typeof v[k] !== typeof P[k] || P[k] === v[k]) continue;
+    P[k] = v[k];
+    if (k === 'adaptive') adaptiveChanged = true;
+    else if (k === 'sigma') field = true;
+    else if (k === 'birds') bird = true;
+  }
+  if (adaptiveChanged && FB) commit();
+  else if (field && FB) refresh();
+  if (bird) syncBirds();
+}
+
+function drawGhosts() {
+  const box = document.getElementById('ghosts');
+  box.innerHTML = icons.map(ic => `<div class="ghost" style="left:${ic.x}px;top:${ic.y}px;width:${ic.w}px;height:${ic.h}px"><i></i><b></b></div>`).join('');
+}
+
+function startHostedMode() {
+  document.body.classList.add('wall');
+  if (PREVIEW) {
+    document.body.classList.add('preview');
+    const g = document.createElement('div'); g.id = 'ghosts'; document.body.appendChild(g);
+  }
+  icons = [];
+  commit(true);
+  syncBirds(false);
+  let first = true;
+  const handle = m => {
+    if (m.t === 'pause') { paused = !!m.v; return; }
+    if (m.t === 'settings') { applySettings(m.v || {}); return; }
+    if (m.t === 'reset') { applySettings(Object.assign({}, DEFAULTS, m.v || {})); return; }
+    if (m.t !== 'icons') return;
+    const k = window.devicePixelRatio || 1;
+    icons = m.vis ? m.r.map(([l, t, r, b]) => ({ x: l / k, y: t / k, w: (r - l) / k, h: (b - t) / k })) : [];
+    if (PREVIEW) drawGhosts();
+    iconsSeen = true;
+    commit(first);
+    first = false;
+  };
+  if (PREVIEW) {
+    addEventListener('message', ev => { if (ev.source === parent) handle(typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data); });
+    parent.postMessage(JSON.stringify({ t: 'ready' }), '*');
+    return;
+  }
+  const host = window.chrome && window.chrome.webview;
+  if (!host) return;
+  host.addEventListener('message', ev => handle(JSON.parse(ev.data)));
+  host.postMessage('ready');
+}
+</script>
+<script src="share.js"></script>
+</body>
+</html>

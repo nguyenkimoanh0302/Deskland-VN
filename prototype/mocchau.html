@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deskland · Hoa mận Mộc Châu</title>
+<style>
+  :root { --taskbar: 48px; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #9ab678; }
+  body { font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+  #art { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  #desktop { position: fixed; left: 0; top: 0; right: 0; bottom: var(--taskbar); }
+  #panel, #taskbar, #desktop { display: none; }
+  #ghosts { position: fixed; inset: 0; pointer-events: none; display: none; }
+  body.preview #ghosts { display: block; }
+  .ghost { position: absolute; }
+  .ghost i { position: absolute; left: 50%; top: 4px; width: 48px; height: 48px; margin-left: -24px; border-radius: 9px;
+    background: rgba(255,255,255,.88); box-shadow: 3px 6px 8px rgba(45,65,50,.26); }
+  .ghost b { position: absolute; left: 14%; right: 14%; top: 60px; height: 10px; border-radius: 5px; background: rgba(255,255,255,.78); }
+  #nogl { position: fixed; inset: 0; display: none; place-items: center; color: #fff; font-size: 16px; }
+</style>
+</head>
+<body>
+<canvas id="art"></canvas>
+<div id="desktop"></div>
+<div id="taskbar"><div id="clock"></div></div>
+<div id="nogl">Trình duyệt hiện tại không hỗ trợ WebGL2, không thể chạy hình nền.</div>
+
+<script>
+'use strict';
+
+const CELL_W = 76, CELL_H = 100, GRID_X0 = 4, GRID_Y0 = 6, TASKBAR = 48;
+const STEP = 5;
+const MORPH_MS = 1800;
+
+const QS = new URLSearchParams(location.search);
+const WALL = QS.has('wallpaper');
+const PREVIEW = QS.has('preview');
+const P = {
+  sigma: 80, warp: 30, bloom: 0.80, petals: 0.55, wind: 1.0, mist: 0.35, birds: 3,
+  grain: 1, quality: 2, debug: false, snap: true, cap30: true,
+};
+const DEFAULTS = Object.assign({}, P);
+const SLIDERS = [
+  { key: 'sigma',  label: 'Độ rộng triền cỏ',       min: 40,  max: 200, step: 1,    act: 'field' },
+  { key: 'warp',   label: 'Độ uốn lượn sườn đồi',   min: 0,   max: 80,  step: 1,    act: 'field' },
+  { key: 'bloom',  label: 'Độ nở rộ hoa mận trắng', min: 0.2, max: 1.0, step: 0.05 },
+  { key: 'petals', label: 'Cánh hoa mận bay',       min: 0,   max: 1.0, step: 0.05 },
+  { key: 'wind',   label: 'Gió nhẹ cao nguyên',     min: 0,   max: 3.0, step: 0.05 },
+  { key: 'mist',   label: 'Sương sớm Mộc Châu',     min: 0,   max: 1.0, step: 0.05 },
+  { key: 'birds',  label: 'Chim bay trên đồi',      min: 0,   max: 8,   step: 1 },
+];
+
+let seed = (Math.random() * 1e6) | 0;
+function hash2(x, y, k = 0) {
+  let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(seed + k, 2246822519);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+function vnoise(x, y, k = 0) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  const a = hash2(ix, iy, k), b = hash2(ix + 1, iy, k), c = hash2(ix, iy + 1, k), d = hash2(ix + 1, iy + 1, k);
+  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+}
+function fbm(x, y, k = 0) {
+  let a = 0.5, s = 0;
+  for (let i = 0; i < 4; i++) { s += a * vnoise(x, y, k + i * 7); x = x * 2.03 + 17.1; y = y * 2.03 + 17.1; a *= 0.5; }
+  return s;
+}
+function tileNoise(x, y, px, py, k) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  const m = (v, p) => ((v % p) + p) % p;
+  const x0 = m(ix, px), x1 = m(ix + 1, px), y0 = m(iy, py), y1 = m(iy + 1, py);
+  const a = hash2(x0, y0, k), b = hash2(x1, y0, k), c = hash2(x0, y1, k), d = hash2(x1, y1, k);
+  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+}
+function tileFbm(u, v, periods, k) {
+  let s = 0, w = 0.5, tw = 0;
+  for (let i = 0; i < periods.length; i++) { s += w * tileNoise(u * periods[i], v * periods[i], periods[i], periods[i], k + i * 13); tw += w; w *= 0.5; }
+  return s / tw;
+}
+function makeNoiseImage() {
+  const S = 256, d = new Uint8Array(S * S * 4);
+  const chans = [[8, 16, 32, 64], [8, 16, 32, 64], [8, 16, 32], [16, 32, 64, 128]];
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const u = x / S, v = y / S, i = (y * S + x) * 4;
+    for (let c = 0; c < 4; c++) {
+      let n = tileFbm(u, v, chans[c], 100 + c * 50);
+      d[i + c] = Math.min(Math.max((n - 0.5) * 1.9 + 0.5, 0), 1) * 255;
+    }
+  }
+  return { S, d };
+}
+
+let W = innerWidth, H = innerHeight, Gw = 1, Gh = 1, NZ = null;
+function buildNoise() {
+  const N = Gw * Gh;
+  NZ = { wx: new Float32Array(N), wy: new Float32Array(N) };
+  for (let gy = 0; gy < Gh; gy++) for (let gx = 0; gx < Gw; gx++) {
+    const i = gy * Gw + gx, x = gx * STEP, y = gy * STEP;
+    NZ.wx[i] = fbm(x * 0.0028, y * 0.0028, 1) - 0.47;
+    NZ.wy[i] = fbm(x * 0.0028, y * 0.0028, 2) - 0.47;
+  }
+}
+function computeField(rects) {
+  const N = Gw * Gh, f1 = new Float32Array(N);
+  const sig = P.sigma, is1 = 1 / (sig * sig);
+  const wa = P.warp * 2.2, wmax = wa * 0.5;
+  for (const r of rects) {
+    const R = 5.5 * sig + Math.max(r.hw, r.hh) * 0.5 + wmax;
+    const gx0 = Math.max(0, Math.floor((r.cx - R) / STEP)), gx1 = Math.min(Gw - 1, Math.ceil((r.cx + R) / STEP));
+    const gy0 = Math.max(0, Math.floor((r.cy - R) / STEP)), gy1 = Math.min(Gh - 1, Math.ceil((r.cy + R) / STEP));
+    const chw = r.hw * 0.5, chh = r.hh * 0.5;
+    for (let gy = gy0; gy <= gy1; gy++) for (let gx = gx0; gx <= gx1; gx++) {
+      const i = gy * Gw + gx;
+      const qx = gx * STEP + NZ.wx[i] * wa, qy = gy * STEP + NZ.wy[i] * wa;
+      let dx = Math.abs(qx - r.cx) - chw, dy = Math.abs(qy - r.cy) - chh;
+      if (dx < 0) dx = 0; if (dy < 0) dy = 0;
+      f1[i] += Math.exp(-(dx * dx + dy * dy) * is1);
+    }
+  }
+  const c0 = Math.sqrt(-Math.log(0.35)), s = new Float32Array(N), fMin = Math.exp(-30);
+  for (let i = 0; i < N; i++) {
+    const g = Math.log(Math.max(f1[i], fMin));
+    s[i] = sig * (Math.sqrt(Math.max(-g, 0)) - c0) - sig * 0.6 * Math.max(g, 0);
+  }
+  return { s };
+}
+
+const VS = `#version 300 es
+void main() {
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+const FS = `#version 300 es
+precision highp float;
+uniform sampler2D uNoise, uFA, uFB;
+uniform vec2 uRes, uGrid;
+uniform float uScale, uSeed, uStep, uMix, uTime, uBloom, uPetals, uWind, uMist, uDebug;
+uniform vec4 uBird[8];
+uniform float uBirdN;
+out vec4 o;
+
+// Bảng màu cỏ non mùa xuân cao nguyên Mộc Châu
+const vec3 GRASS_L = vec3(0.76, 0.84, 0.57);
+const vec3 GRASS_M = vec3(0.65, 0.77, 0.48);
+const vec3 GRASS_D = vec3(0.51, 0.66, 0.40);
+const vec3 HILL_BG = vec3(0.47, 0.63, 0.44);
+const vec3 HILL_DEEP = vec3(0.36, 0.53, 0.39);
+const vec3 INK_GRASS = vec3(0.26, 0.40, 0.22);
+const vec3 BARK_INK  = vec3(0.28, 0.21, 0.18);
+
+// Bảng màu tán hoa mận trắng màu nước
+const vec3 PLUM_HI   = vec3(0.99, 0.99, 0.97);
+const vec3 PLUM_CREAM= vec3(0.96, 0.95, 0.91);
+const vec3 PLUM_MIST = vec3(0.84, 0.89, 0.93);
+const vec3 PLUM_BLUSH= vec3(0.97, 0.91, 0.92);
+
+float hash2(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+float ss(float a, float b, float x) { float t = clamp((x - a) / (b - a), 0.0, 1.0); return t * t * (3.0 - 2.0 * t); }
+vec4 N(vec2 p, float scale) { return texture(uNoise, p / scale + uSeed * 0.013); }
+float fieldS(sampler2D t, vec2 p) { return texture(t, (p / uStep + 0.5) / uGrid).r; }
+mat2 rot(float a) { float c = cos(a), s = sin(a); return mat2(c, s, -s, c); }
+float segD(vec2 p, vec2 a, vec2 b) { vec2 pa = p - a, ba = b - a; return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0)); }
+
+float grassInk(vec2 p) {
+  const vec2 G = vec2(13.0, 6.5);
+  vec2 c0 = floor(p / G);
+  float ink = 0.0;
+  for (int j = -1; j <= 1; j++) {
+    vec2 c = c0 + vec2(0.0, float(j));
+    vec2 cp = (c + 0.5) * G;
+    float h = hash2(c + 3.1);
+    float dens = 0.70 * ss(0.42, 0.72, N(cp, 880.0).r) + 0.02;
+    if (h > dens) continue;
+    float ang = (N(cp, 1300.0).g - 0.5) * 0.7 + (hash2(c + 7.7) - 0.5) * 0.3;
+    float len = 2.4 + 2.8 * hash2(c + 1.9);
+    vec2 ctr = cp + (vec2(hash2(c + 4.3), hash2(c + 5.9)) - 0.5) * vec2(2.0, 3.0);
+    vec2 dir = vec2(cos(ang), sin(ang)) * len;
+    float d = segD(p, ctr - dir, ctr + dir);
+    ink = max(ink, (1.0 - ss(0.2, 0.9, d)) * (0.35 + 0.42 * hash2(c + 9.1)));
+  }
+  return ink;
+}
+
+// Cánh hoa mận trắng rơi rải rác ven triền cỏ
+float groundPetals(vec2 p) {
+  vec2 G = vec2(22.0, 22.0);
+  vec2 c = floor(p / G);
+  float h = hash2(c + uSeed * 0.09);
+  if (h > 0.32) return 0.0;
+  vec2 ctr = (c + 0.25 + 0.5 * vec2(hash2(c + 1.7), hash2(c + 3.3))) * G;
+  vec2 dp = rot(hash2(c + 5.1) * 6.283) * (p - ctr);
+  float d = length(dp / vec2(2.1, 1.3)) - 1.0;
+  return 1.0 - ss(-0.2, 0.5, d * 1.5);
+}
+
+// Tán hoa mận trắng màu nước và cành cây nét mực mảnh (vùng lân cận 2x2)
+vec4 plumLayer(vec2 p, float G, float seedOff, float sDist, float minS, float t, float nLobe, out float branchAlpha) {
+  branchAlpha = 0.0;
+  vec2 q = p / G;
+  vec2 c0 = floor(q), f = q - c0;
+  int sx = f.x < 0.5 ? -1 : 1, sy = f.y < 0.5 ? -1 : 1;
+  float bestD = 1e9;
+  vec3 bestCol = PLUM_HI;
+  vec2 bestCtr = vec2(0.0);
+  float bestRad = 1.0, bestH = 0.0;
+  for (int dy = 0; dy <= 1; dy++) for (int dx = 0; dx <= 1; dx++) {
+    vec2 c = c0 + vec2(float(dx * sx), float(dy * sy));
+    float h = hash2(c + seedOff);
+    if (h > uBloom * 0.92) continue;
+    vec2 baseCtr = (c + 0.22 + 0.56 * vec2(hash2(c + seedOff + 1.3), hash2(c + seedOff + 2.7))) * G;
+    float swPhase = t * (1.2 + 0.4 * h) + baseCtr.x * 0.011 + baseCtr.y * 0.009;
+    vec2 ctr = baseCtr + vec2(sin(swPhase), cos(swPhase * 0.8)) * (2.4 * uWind);
+    vec2 dp = p - ctr;
+    float rad = G * (0.42 + 0.18 * hash2(c + seedOff + 6.1)) * (1.0 + nLobe);
+    float d = length(dp) - rad;
+    if (d < bestD) {
+      bestD = d; bestCtr = ctr; bestRad = rad; bestH = h;
+      float tone = hash2(c + seedOff + 8.9);
+      vec3 cBase = tone < 0.52 ? PLUM_HI : (tone < 0.82 ? PLUM_CREAM : PLUM_BLUSH);
+      float lit = ss(rad * 0.75, -rad * 0.75, dp.x * 0.6 + dp.y * 0.8);
+      cBase = mix(PLUM_MIST, cBase, lit);
+      float rim = ss(-rad * 0.35, 0.0, d) * 0.12;
+      bestCol = mix(cBase, PLUM_MIST * 0.94, rim);
+    }
+  }
+  if (bestD < 4.0) {
+    vec2 root = bestCtr + vec2((bestH - 0.5) * 6.0, bestRad * 0.55);
+    vec2 tip1 = bestCtr + vec2(-bestRad * 0.35, -bestRad * 0.25);
+    vec2 tip2 = bestCtr + vec2(bestRad * 0.38, -bestRad * 0.18);
+    float bd = min(segD(p, root, bestCtr), min(segD(p, bestCtr, tip1), segD(p, bestCtr, tip2)));
+    branchAlpha = (1.0 - ss(0.4, 1.3, bd)) * ss(minS, minS + 16.0, sDist) * 0.55;
+  }
+  float mask = (1.0 - ss(-1.2, 1.4, bestD)) * ss(minS, minS + 16.0, sDist);
+  return vec4(bestCol, mask * 0.92);
+}
+
+// Cánh hoa mận trắng bay theo gió
+float floatingPetals(vec2 p, float t, float dens, float scale) {
+  if (dens <= 0.01) return 0.0;
+  vec2 wp = p - vec2(t * (26.0 + 18.0 * uWind) * scale, t * 18.0 * scale);
+  wp.y += sin(p.x * 0.018 + t * 1.4) * 14.0;
+  vec2 G = vec2(68.0 * scale, 68.0 * scale);
+  vec2 c = floor(wp / G);
+  vec2 f = (fract(wp / G) - 0.5) * G;
+  float h = hash2(c + scale * 29.1 + uSeed * 0.05);
+  if (h > dens * 0.72) return 0.0;
+  vec2 ofs = (vec2(hash2(c + 2.3), hash2(c + 5.7)) - 0.5) * G * 0.55;
+  float rotA = t * (1.8 + hash2(c + 8.1)) + h * 6.283;
+  vec2 q = rot(rotA) * (f - ofs);
+  float d = length(q / vec2(3.2 * scale, 1.9 * scale)) - 1.0;
+  return 1.0 - ss(-0.15, 0.45, d * 2.0);
+}
+
+// Chim nhỏ trong rừng
+vec3 birdSD(vec2 q, float ph) {
+  float flap = sin(ph) * 2.0;
+  float body = length(q / vec2(5.0, 2.0)) - 1.0;
+  vec2 wq = vec2(q.x + 0.4, abs(q.y) - 1.0);
+  vec2 rw = rot(-0.2 + 0.12 * sin(ph)) * wq;
+  float wing = length((rw - vec2(-0.6 + flap * 0.14, 3.8)) / vec2(2.3, 4.6)) - 1.0;
+  return vec3(body * 2.0, wing * 2.3, clamp(wq.y / 8.5, 0.0, 1.0));
+}
+
+void main() {
+  vec2 p = vec2(gl_FragCoord.x, uRes.y * uScale - gl_FragCoord.y) / uScale;
+  float t = uTime;
+  vec2 gp = floor(p * (0.8 * max(uScale, 1.0)));
+  float g2 = hash2(gp + 7.3);
+
+  float s0 = mix(fieldS(uFA, p), fieldS(uFB, p), uMix);
+  float s = s0 + (N(p, 620.0).r - 0.5) * 10.0;
+
+  vec3 col;
+  if (s <= 0.0) {
+    // ---------- Thảm cỏ xuân cao nguyên (vùng biểu tượng) ----------
+    float w1 = N(p, 1750.0).b, w2 = N(p + 293.0, 620.0).g;
+    col = mix(GRASS_M, GRASS_L, ss(0.28, 0.74, w1 * 0.7 + w2 * 0.3));
+    col = mix(col, GRASS_D, ss(0.45, 0.85, N(p + 911.0, 1200.0).r) * 0.36);
+    col = mix(col, INK_GRASS, grassInk(p) * 0.68 * ss(-2.0, -14.0, s));
+    // Cánh hoa mận trắng rơi ven triền cỏ
+    float gpMask = groundPetals(p) * ss(-36.0, -2.0, s);
+    col = mix(col, PLUM_HI, gpMask * 0.85);
+  } else {
+    // ---------- Đồi chè nhấp nhô và rừng mận trắng Mộc Châu ----------
+    float dNorm = clamp(s / 260.0, 0.0, 1.0);
+    col = mix(GRASS_D, HILL_DEEP, dNorm * 0.75);
+    // Đường đồng mức màu nước mềm mại trên sườn đồi
+    float terrace = sin(s * 0.14 + N(p, 420.0).r * 4.5);
+    col = mix(col, HILL_BG, ss(-0.3, 0.6, terrace) * 0.35);
+
+    // Hai tầng tán hoa mận trắng đan xen và cành cây nét mực mảnh
+    float nLobe = (N(p, 42.0).g - 0.5) * 0.22;
+    float br1 = 0.0, br2 = 0.0;
+    vec4 L1 = plumLayer(p, 58.0, 13.0, s, 2.0, t, nLobe, br1);
+    col = mix(col, BARK_INK, br1 * 0.55);
+    if (L1.a > 0.001) {
+      col *= 1.0 - 0.10 * L1.a;
+      col = mix(col, L1.rgb * 0.95, L1.a);
+    }
+
+    vec4 L2 = plumLayer(p + vec2(24.0, 17.0), 40.0, 41.0, s, 0.0, t, -nLobe, br2);
+    col = mix(col, BARK_INK, br2 * 0.62);
+    if (L2.a > 0.001) {
+      col *= 1.0 - 0.12 * L2.a;
+      col = mix(col, L2.rgb, L2.a);
+    }
+  }
+
+  // ---------- Chim bay trên cao nguyên ----------
+  for (int i = 0; i < 8; i++) {
+    if (float(i) >= uBirdN) break;
+    vec4 b = uBird[i];
+    vec2 d0 = p - b.xy, d1 = d0 - vec2(22.0, 34.0);
+    if (dot(d1, d1) < 320.0) {
+      vec3 g = birdSD(rot(-b.z) * d1, b.w);
+      col = mix(col, col * 0.74, ss(1.8, -1.8, min(g.x, g.y)) * 0.28);
+    }
+    if (dot(d0, d0) < 320.0) {
+      vec3 g = birdSD(rot(-b.z) * d0, b.w);
+      col = mix(col, vec3(0.26, 0.32, 0.36), ss(0.6, -0.6, min(g.x, g.y)));
+      col = mix(col, vec3(0.95, 0.96, 0.94), ss(0.6, -0.6, g.x) * 0.6);
+    }
+  }
+
+  // ---------- Sương sớm dịu nhẹ trên cao nguyên ----------
+  if (uMist > 0.01) {
+    vec2 mp1 = p + vec2(-t * 11.0, sin(p.x * 0.0035 + t * 0.18) * 16.0);
+    vec2 mp2 = p + vec2(-t * 18.0 + 350.0, cos(p.x * 0.003 - t * 0.14) * 20.0);
+    float m = N(mp1, 950.0).r * N(mp2, 520.0).g;
+    float mistA = ss(0.20, 0.62, m) * uMist * 0.52;
+    col = mix(col, vec3(0.95, 0.97, 0.96), mistA);
+  }
+
+  // ---------- Cánh hoa mận trắng bay theo gió ----------
+  if (uPetals > 0.01) {
+    float p1 = floatingPetals(p, t, uPetals, 1.0);
+    float p2 = floatingPetals(p + vec2(43.0, 29.0), t * 0.85, uPetals * 0.8, 0.76);
+    float pMask = max(p1, p2 * 0.85);
+    col = mix(col, vec3(1.0, 0.99, 0.98), pMask * 0.92);
+  }
+
+  col *= 1.0 + (g2 - 0.5) * 0.028;
+  if (uDebug > 0.5) col = mix(col, vec3(0.9, 0.15, 0.15), 1.0 - ss(0.0, 1.5, abs(s0)));
+  o = vec4(col, 1.0);
+}`;
+
+const cv = document.getElementById('art');
+const gl = cv.getContext('webgl2', { antialias: false });
+if (!gl) document.getElementById('nogl').style.display = 'grid';
+function program(fs) {
+  const mk = (type, src) => {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { console.error(gl.getShaderInfoLog(s)); throw new Error('shader'); }
+    return s;
+  };
+  const p = gl.createProgram();
+  gl.attachShader(p, mk(gl.VERTEX_SHADER, VS));
+  gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(p));
+  const U = {};
+  const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const nm = gl.getActiveUniform(p, i).name.replace(/\[0\]$/, ''); U[nm] = gl.getUniformLocation(p, nm); }
+  return { p, U };
+}
+const PR = program(FS);
+gl.bindVertexArray(gl.createVertexArray());
+
+let noiseTex = null;
+function buildNoiseTex() {
+  const { S, d } = makeNoiseImage();
+  noiseTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, noiseTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, S, S, 0, gl.RGBA, gl.UNSIGNED_BYTE, d);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+}
+const f32 = new Float32Array(1), u32 = new Uint32Array(f32.buffer);
+function toHalf(v) {
+  f32[0] = v; const x = u32[0];
+  const sign = (x >>> 16) & 0x8000, e = ((x >>> 23) & 0xff) - 112, m = x & 0x7fffff;
+  if (e <= 0) return sign;
+  if (e >= 31) return sign | 0x7c00;
+  return sign | (e << 10) | (m >>> 13);
+}
+const ftex = [null, null];
+let fromI = 0, toI = 0, morphT0 = -1e9, morphDur = MORPH_MS, FA = null, FB = null;
+function allocField() {
+  for (let i = 0; i < 2; i++) {
+    if (ftex[i]) gl.deleteTexture(ftex[i]);
+    ftex[i] = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, ftex[i]);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, Gw, Gh, 0, gl.RED, gl.HALF_FLOAT, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  }
+}
+function uploadField(i, Fd) {
+  const d = new Uint16Array(Gw * Gh);
+  for (let k = 0; k < d.length; k++) d[k] = toHalf(Fd.s[k]);
+  gl.bindTexture(gl.TEXTURE_2D, ftex[i]);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, Gw, Gh, gl.RED, gl.HALF_FLOAT, d);
+}
+
+let icons = [];
+const iconRects = () => icons.map(ic => ({ cx: ic.x + ic.w / 2, cy: ic.y + ic.h / 2, hw: ic.w / 2 - 4, hh: ic.h / 2 - 2 }));
+function commit(fromEmpty = false) {
+  const nf = computeField(iconRects());
+  const target = 1 - toI;
+  if (fromEmpty) { FA = computeField([]); uploadField(toI, FA); }
+  else FA = FB;
+  FB = nf;
+  uploadField(target, FB);
+  fromI = toI; toI = target;
+  morphT0 = performance.now();
+  morphDur = fromEmpty ? 2600 : MORPH_MS;
+}
+function refresh() {
+  FA = FB = computeField(iconRects());
+  uploadField(toI, FB);
+  fromI = toI; morphT0 = -1e9;
+}
+
+let curMix = 1;
+
+const birds = [], birdUniform = new Float32Array(32);
+function spawnBird() {
+  const a = Math.random() * Math.PI * 2;
+  return {
+    x: 80 + Math.random() * Math.max(100, W - 160),
+    y: 80 + Math.random() * Math.max(100, H - TASKBAR - 160),
+    a, sp: 20 + Math.random() * 14, turn: (Math.random() - 0.5) * 0.25,
+    ph: Math.random() * 6.28, timer: 2 + Math.random() * 4,
+  };
+}
+function stepBirds(dt) {
+  const want = Math.max(0, Math.min(8, Math.round(P.birds)));
+  while (birds.length < want) birds.push(spawnBird());
+  if (birds.length > want) birds.length = want;
+  for (let i = 0; i < birds.length; i++) {
+    const b = birds[i];
+    b.timer -= dt;
+    if (b.timer <= 0) { b.turn = (Math.random() - 0.5) * 0.5; b.timer = 2.5 + Math.random() * 4; }
+    const m = 110;
+    if (b.x < m) b.turn += (Math.cos(b.a) < 0 ? 0.8 : 0.3) * dt;
+    if (b.x > W - m) b.turn -= (Math.cos(b.a) > 0 ? 0.8 : 0.3) * dt;
+    if (b.y < m) b.turn += (Math.sin(b.a) < 0 ? 0.8 : 0.3) * dt;
+    if (b.y > H - TASKBAR - m) b.turn -= (Math.sin(b.a) > 0 ? 0.8 : 0.3) * dt;
+    b.a += b.turn * dt;
+    b.x += Math.cos(b.a) * b.sp * dt;
+    b.y += Math.sin(b.a) * b.sp * dt;
+    b.ph += dt * 7.2;
+    birdUniform[i * 4] = b.x;
+    birdUniform[i * 4 + 1] = b.y;
+    birdUniform[i * 4 + 2] = b.a;
+    birdUniform[i * 4 + 3] = b.ph;
+  }
+}
+
+function resize() {
+  W = innerWidth; H = innerHeight;
+  const scale = PREVIEW ? 0.38 : Math.min(devicePixelRatio || 1, 0.72);
+  const box = cv.getBoundingClientRect();
+  cv.width = Math.round((box.width || W) * scale); cv.height = Math.round((box.height || H) * scale); cv._scale = scale;
+  Gw = Math.ceil(W / STEP) + 2; Gh = Math.ceil(H / STEP) + 2;
+  buildNoise();
+  allocField();
+}
+
+const T0 = performance.now();
+let lastT = 0, frameN = 0, paused = false;
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (paused) { lastT = 0; return; }
+  if (P.cap30 && now - lastT < 40) return;
+  const dt = lastT ? Math.min((now - lastT) / 1000, 0.1) : 0.03;
+  lastT = now;
+  const e = Math.min((now - morphT0) / morphDur, 1);
+  curMix = e < 0.5 ? 2 * e * e : 1 - Math.pow(-2 * e + 2, 2) / 2;
+  stepBirds(dt);
+  draw(now);
+  frameN++;
+}
+function draw(now) {
+  const { p, U } = PR;
+  gl.useProgram(p);
+  gl.viewport(0, 0, cv.width, cv.height);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, noiseTex);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, ftex[fromI]);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, ftex[toI]);
+  gl.uniform1i(U.uNoise, 0); gl.uniform1i(U.uFA, 1); gl.uniform1i(U.uFB, 2);
+  gl.uniform2f(U.uRes, cv.width / cv._scale, cv.height / cv._scale);
+  gl.uniform2f(U.uGrid, Gw, Gh);
+  gl.uniform1f(U.uScale, cv._scale);
+  gl.uniform1f(U.uSeed, (seed % 997) * 0.37);
+  gl.uniform1f(U.uStep, STEP);
+  gl.uniform1f(U.uMix, curMix);
+  gl.uniform1f(U.uTime, (now - T0) / 1000);
+  gl.uniform1f(U.uBloom, P.bloom);
+  gl.uniform1f(U.uPetals, P.petals);
+  gl.uniform1f(U.uWind, P.wind);
+  gl.uniform1f(U.uMist, P.mist);
+  gl.uniform1f(U.uDebug, P.debug ? 1 : 0);
+  gl.uniform1f(U.uBirdN, birds.length);
+  if (birds.length) gl.uniform4fv(U.uBird, birdUniform);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+let iconsSeen = !(WALL || PREVIEW);
+function reseed(v) {
+  seed = v; buildNoise();
+  birds.length = 0;
+  if (!iconsSeen) return;
+  commit(true);
+}
+let resizeT = 0;
+addEventListener('resize', () => {
+  clearTimeout(resizeT);
+  resizeT = setTimeout(() => { resize(); refresh(); }, 100);
+});
+
+resize();
+buildNoiseTex();
+if (WALL || PREVIEW) startHostedMode();
+else commit(true);
+requestAnimationFrame(frame);
+
+function applySettings(v) {
+  if (typeof v.seed === 'number' && v.seed !== seed) reseed(v.seed);
+  let field = false;
+  for (const k in v) {
+    if (!SLIDERS.some(s => s.key === k) || typeof v[k] !== typeof P[k] || P[k] === v[k]) continue;
+    P[k] = v[k];
+    if (k === 'sigma' || k === 'warp') field = true;
+  }
+  if (field && FB) refresh();
+}
+
+function drawGhosts() {
+  const box = document.getElementById('ghosts');
+  box.innerHTML = icons.map(ic => `<div class="ghost" style="left:${ic.x}px;top:${ic.y}px;width:${ic.w}px;height:${ic.h}px"><i></i><b></b></div>`).join('');
+}
+
+function startHostedMode() {
+  document.body.classList.add('wall');
+  if (PREVIEW) {
+    document.body.classList.add('preview');
+    const g = document.createElement('div'); g.id = 'ghosts'; document.body.appendChild(g);
+  }
+  icons = [];
+  commit(true);
+  let first = true;
+  const handle = m => {
+    if (m.t === 'pause') { paused = !!m.v; return; }
+    if (m.t === 'settings') { applySettings(m.v || {}); return; }
+    if (m.t === 'reset') { applySettings(Object.assign({}, DEFAULTS, m.v || {})); return; }
+    if (m.t !== 'icons') return;
+    const k = window.devicePixelRatio || 1;
+    icons = m.vis ? m.r.map(([l, t, r, b]) => ({ x: l / k, y: t / k, w: (r - l) / k, h: (b - t) / k })) : [];
+    if (PREVIEW) drawGhosts();
+    iconsSeen = true;
+    commit(first);
+    first = false;
+  };
+  if (PREVIEW) {
+    addEventListener('message', ev => { if (ev.source === parent) handle(typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data); });
+    parent.postMessage(JSON.stringify({ t: 'ready' }), '*');
+    return;
+  }
+  const host = window.chrome && window.chrome.webview;
+  if (!host) return;
+  host.addEventListener('message', ev => handle(JSON.parse(ev.data)));
+  host.postMessage('ready');
+}
+</script>
+<script src="share.js"></script>
+</body>
+</html>
