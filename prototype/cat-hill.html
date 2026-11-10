@@ -1,0 +1,1453 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deskland · Đồi mèo nắng ấm</title>
+<style>
+  :root { --taskbar: 48px; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #8AD848; }
+  body { font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+  #art { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  #desktop { position: fixed; left: 0; top: 0; right: 0; bottom: var(--taskbar); }
+  body.wall #panel, body.wall #taskbar, body.wall #desktop { display: none; }
+  #ghosts { position: fixed; inset: 0; pointer-events: none; display: none; }
+  body.preview #ghosts { display: block; }
+  .ghost { position: absolute; }
+  .ghost i { position: absolute; left: 50%; top: 4px; width: 48px; height: 48px; margin-left: -24px; border-radius: 9px;
+    background: rgba(255,255,255,.88); box-shadow: 3px 6px 8px rgba(40,60,90,.28); }
+  .ghost b { position: absolute; left: 14%; right: 14%; top: 60px; height: 10px; border-radius: 5px; background: rgba(255,255,255,.75); }
+</style>
+</head>
+<body>
+<canvas id="art"></canvas>
+<div id="desktop"></div>
+<div id="taskbar"></div>
+<aside id="panel" class="hidden"></aside>
+
+<script>
+'use strict';
+
+const TASKBAR = 48;
+const GRID_X0 = 4, GRID_Y0 = 6, CELL_W = 76, CELL_H = 100;
+const QS = new URLSearchParams(location.search);
+const WALL = QS.has('wallpaper');
+const PREVIEW = QS.has('preview');
+
+const SLIDERS = [
+  { key: 'cats',        def: 8  },
+  { key: 'leaves',      def: 0.65 },
+  { key: 'wind',        def: 1.0 },
+  { key: 'butterflies', def: 2  },
+];
+const DEFAULTS = Object.assign({ cap30: true }, ...SLIDERS.map(s => ({ [s.key]: s.def })));
+const P = Object.assign({}, DEFAULTS);
+
+const cv = document.getElementById('art');
+const ctx = cv.getContext('2d', { alpha: false });
+let W = innerWidth, H = innerHeight;
+let seed = 108;
+let icons = [];
+let cacheOK = false;
+const bgCv = document.createElement('canvas');
+const bgCtx = bgCv.getContext('2d');
+
+function sRand(k) {
+  let h = Math.imul(k ^ (seed * 131 + 17), 374761393);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+// Đường cong đỉnh đồi cỏ chính
+function hillY(nx) {
+  const dx = nx - 0.50;
+  return 0.255 + 0.34 * dx * dx + 0.012 * Math.sin(nx * 9.0);
+}
+
+// ============================================================================
+// 1. VẼ LỚP NỀN TĨNH (Bầu trời, núi xa, thung lũng sông, nền đồi cỏ, hàng rào, đá)
+// ============================================================================
+function renderStaticBackground() {
+  const s = cv._scale || 1;
+  bgCv.width = cv.width;
+  bgCv.height = cv.height;
+  const g = bgCtx;
+  g.save();
+  g.scale(s, s);
+
+  // 1.1 Bầu trời xanh trong trẻo
+  const skyGrad = g.createLinearGradient(0, 0, 0, H * 0.42);
+  skyGrad.addColorStop(0, '#2fa4ff');
+  skyGrad.addColorStop(0.55, '#69cbff');
+  skyGrad.addColorStop(1, '#c4f1ff');
+  g.fillStyle = skyGrad;
+  g.fillRect(0, 0, W, H * 0.45);
+
+  // 1.2 Dãy núi xa mờ phía chân trời
+  g.fillStyle = '#73c7af';
+  g.beginPath();
+  g.moveTo(0, H * 0.36);
+  const farPeaks = [
+    [0.0, 0.24], [0.08, 0.19], [0.16, 0.23], [0.26, 0.14], [0.35, 0.20],
+    [0.44, 0.13], [0.54, 0.18], [0.64, 0.12], [0.74, 0.19], [0.85, 0.15],
+    [0.94, 0.21], [1.0, 0.18]
+  ];
+  for (let i = 0; i < farPeaks.length; i++) {
+    const [px, py] = farPeaks[i];
+    if (i === 0) g.lineTo(px * W, py * H);
+    else {
+      const [p0x, p0y] = farPeaks[i - 1];
+      const cx = (p0x + px) * 0.5 * W;
+      g.quadraticCurveTo(p0x * W, p0y * H, cx, (p0y + py) * 0.5 * H);
+    }
+  }
+  g.lineTo(W, H * 0.42);
+  g.lineTo(0, H * 0.42);
+  g.closePath();
+  g.fill();
+
+  // 1.3 Thung lũng xanh tầm trung và dòng sông nhỏ ở xa
+  const midGrad = g.createLinearGradient(0, H * 0.16, 0, H * 0.42);
+  midGrad.addColorStop(0, '#8ce063');
+  midGrad.addColorStop(1, '#58b357');
+  g.fillStyle = midGrad;
+  g.beginPath();
+  g.moveTo(0, H * 0.26);
+  g.bezierCurveTo(W * 0.18, H * 0.17, W * 0.34, H * 0.23, W * 0.52, H * 0.19);
+  g.bezierCurveTo(W * 0.70, H * 0.15, W * 0.86, H * 0.22, W, H * 0.25);
+  g.lineTo(W, H * 0.52);
+  g.lineTo(0, H * 0.52);
+  g.closePath();
+  g.fill();
+
+  // Dòng sông xanh trong thung lũng xa (bên trái đồi)
+  g.save();
+  g.fillStyle = '#53c8f5';
+  g.beginPath();
+  g.moveTo(W * 0.36, H * 0.19);
+  g.bezierCurveTo(W * 0.31, H * 0.22, W * 0.39, H * 0.26, W * 0.33, H * 0.32);
+  g.lineTo(W * 0.39, H * 0.32);
+  g.bezierCurveTo(W * 0.44, H * 0.26, W * 0.34, H * 0.22, W * 0.38, H * 0.19);
+  g.closePath();
+  g.fill();
+  g.restore();
+
+  // Những quả đồi xanh đậm nhỏ phía xa (như trong ảnh mẫu)
+  const smallHills = [
+    { x: 0.28, y: 0.22, rx: 0.045, ry: 0.065, c1: '#5ebc66', c2: '#3f9656' },
+    { x: 0.32, y: 0.23, rx: 0.032, ry: 0.048, c1: '#6cc968', c2: '#4ba35c' },
+    { x: 0.48, y: 0.22, rx: 0.038, ry: 0.052, c1: '#65c466', c2: '#469e58' },
+  ];
+  for (const sh of smallHills) {
+    g.fillStyle = sh.c1;
+    g.beginPath();
+    g.ellipse(sh.x * W, sh.y * H, sh.rx * W, sh.ry * H, 0, Math.PI, 0);
+    g.fill();
+  }
+
+  // 1.4 Đồi cỏ chính trải rộng (KHÔNG có các đường line uốn lượn quanh icon)
+  const hillGrad = g.createRadialGradient(W * 0.46, H * 0.44, W * 0.04, W * 0.50, H * 0.58, W * 0.65);
+  hillGrad.addColorStop(0, '#c7f358');
+  hillGrad.addColorStop(0.38, '#a7e443');
+  hillGrad.addColorStop(0.75, '#7ecd36');
+  hillGrad.addColorStop(1, '#58ad2c');
+
+  g.fillStyle = hillGrad;
+  g.beginPath();
+  g.moveTo(0, H);
+  for (let i = 0; i <= 64; i++) {
+    const nx = i / 64;
+    g.lineTo(nx * W, hillY(nx) * H);
+  }
+  g.lineTo(W, H);
+  g.closePath();
+  g.fill();
+
+  // Các mảng cỏ loang nắng tự nhiên (dappled sunlight patches, hoàn toàn mềm mại không có line)
+  const lightPatches = [
+    [0.46, 0.38, 0.16, 0.06, 'rgba(218, 252, 110, 0.42)'],
+    [0.34, 0.52, 0.18, 0.07, 'rgba(212, 248, 102, 0.35)'],
+    [0.54, 0.62, 0.20, 0.08, 'rgba(205, 244, 96, 0.32)'],
+    [0.24, 0.68, 0.14, 0.05, 'rgba(130, 206, 54, 0.28)'],
+    [0.72, 0.72, 0.16, 0.06, 'rgba(116, 194, 48, 0.30)'],
+    // Bóng râm dịu dưới gốc cây cổ thụ bên phải và cây bên trái
+    [0.77, 0.43, 0.14, 0.06, 'rgba(68, 145, 38, 0.42)'],
+    [0.18, 0.41, 0.10, 0.045, 'rgba(72, 150, 40, 0.36)'],
+  ];
+  for (const [px, py, rx, ry, col] of lightPatches) {
+    g.fillStyle = col;
+    g.beginPath();
+    g.ellipse(px * W, py * H, rx * W, ry * H, 0, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  // 1.5 Hàng rào gỗ mộc mạc hai bên sườn đồi
+  drawFence(g, [
+    [0.03 * W, 0.56 * H],
+    [0.065 * W, 0.50 * H],
+    [0.10 * W, 0.45 * H],
+    [0.135 * W, 0.41 * H]
+  ], Math.min(W, H) * 0.001);
+
+  drawFence(g, [
+    [0.67 * W, 0.96 * H],
+    [0.725 * W, 0.91 * H],
+    [0.78 * W, 0.865 * H],
+    [0.835 * W, 0.825 * H]
+  ], Math.min(W, H) * 0.0011);
+
+  // 1.6 Thân cây cổ thụ lớn bên phải và thân cây bên trái
+  drawBigTreeTrunk(g, W * 0.81, H * 0.42, Math.min(W, H) * 0.001);
+  drawLeftTreeTrunk(g, W * 0.185, H * 0.39, Math.min(W, H) * 0.001);
+
+  // 1.7 Các tảng đá rêu, khúc gỗ và chiếc đệm hồng dưới gốc cây
+  drawRock(g, W * 0.18, H * 0.41, 44, 28, '#9aa39b', '#7b857d');
+  drawWoodenLog(g, W * 0.30, H * 0.435, Math.min(W, H) * 0.001);
+  drawRock(g, W * 0.21, H * 0.73, 48, 30, '#99a198', '#778078');
+  drawRock(g, W * 0.745, H * 0.60, 56, 34, '#9ea59d', '#7a827b');
+  drawPinkCushion(g, W * 0.685, H * 0.435, Math.min(W, H) * 0.001);
+  drawMushrooms(g, W * 0.848, H * 0.475, Math.min(W, H) * 0.001);
+
+  g.restore();
+  cacheOK = true;
+}
+
+function drawFence(g, posts, k) {
+  g.save();
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  // Thanh ngang
+  for (let i = 0; i < posts.length - 1; i++) {
+    const [x1, y1] = posts[i], [x2, y2] = posts[i + 1];
+    for (const dy of [-22 * k, -10 * k]) {
+      g.strokeStyle = '#6c4223';
+      g.lineWidth = 9 * k;
+      g.beginPath(); g.moveTo(x1, y1 + dy); g.lineTo(x2, y2 + dy); g.stroke();
+      g.strokeStyle = '#c8874b';
+      g.lineWidth = 6 * k;
+      g.beginPath(); g.moveTo(x1, y1 + dy - 1 * k); g.lineTo(x2, y2 + dy - 1 * k); g.stroke();
+    }
+  }
+  // Cọc gỗ đứng
+  for (const [px, py] of posts) {
+    const pw = 12 * k, ph = 38 * k;
+    g.fillStyle = 'rgba(45, 95, 25, 0.32)';
+    g.beginPath(); g.ellipse(px + 3 * k, py + 2 * k, pw * 0.9, 5 * k, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#b5743c';
+    g.strokeStyle = '#683e1f';
+    g.lineWidth = 2 * k;
+    g.beginPath();
+    g.moveTo(px - pw * 0.5, py);
+    g.lineTo(px - pw * 0.5, py - ph + 5 * k);
+    g.lineTo(px, py - ph);
+    g.lineTo(px + pw * 0.5, py - ph + 5 * k);
+    g.lineTo(px + pw * 0.5, py);
+    g.closePath();
+    g.fill();
+    g.stroke();
+    g.fillStyle = '#da9b5c';
+    g.fillRect(px - pw * 0.32, py - ph + 6 * k, pw * 0.28, ph - 8 * k);
+  }
+  g.restore();
+}
+
+function drawBigTreeTrunk(g, x, y, k) {
+  g.save();
+  g.translate(x, y);
+  g.scale(k, k);
+  // Bóng đổ dưới gốc cây
+  g.fillStyle = 'rgba(54, 124, 30, 0.42)';
+  g.beginPath(); g.ellipse(-18, 42, 118, 36, 0, 0, Math.PI * 2); g.fill();
+
+  // Thân và rễ cây cổ thụ
+  g.fillStyle = '#8b5732';
+  g.strokeStyle = '#58341b';
+  g.lineWidth = 3.2;
+  g.beginPath();
+  g.moveTo(-62, 46);
+  g.quadraticCurveTo(-36, 18, -32, -45);
+  g.quadraticCurveTo(-48, -82, -74, -110);
+  g.lineTo(-42, -118);
+  g.quadraticCurveTo(-14, -82, -4, -58);
+  g.quadraticCurveTo(14, -92, 46, -124);
+  g.lineTo(74, -110);
+  g.quadraticCurveTo(38, -68, 32, -26);
+  g.quadraticCurveTo(42, 18, 68, 44);
+  g.quadraticCurveTo(32, 48, 14, 36);
+  g.quadraticCurveTo(0, 52, -24, 42);
+  g.quadraticCurveTo(-44, 50, -62, 46);
+  g.closePath();
+  g.fill();
+  g.stroke();
+
+  // Mảng sáng trên vỏ cây
+  g.fillStyle = '#a96e43';
+  g.beginPath();
+  g.moveTo(-26, 26);
+  g.quadraticCurveTo(-18, -15, -24, -55);
+  g.lineTo(-6, -52);
+  g.quadraticCurveTo(-4, -10, 4, 28);
+  g.closePath();
+  g.fill();
+  g.restore();
+}
+
+function drawLeftTreeTrunk(g, x, y, k) {
+  g.save();
+  g.translate(x, y);
+  g.scale(k, k);
+  g.fillStyle = 'rgba(54, 124, 30, 0.35)';
+  g.beginPath(); g.ellipse(0, 18, 64, 20, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#86532f';
+  g.strokeStyle = '#563219';
+  g.lineWidth = 2.6;
+  g.beginPath();
+  g.moveTo(-24, 22);
+  g.quadraticCurveTo(-12, -5, -16, -48);
+  g.lineTo(14, -48);
+  g.quadraticCurveTo(10, -5, 24, 20);
+  g.closePath();
+  g.fill();
+  g.stroke();
+  g.restore();
+}
+
+function drawRock(g, x, y, rx, ry, topCol, sideCol) {
+  const k = Math.min(W, H) * 0.001;
+  g.save();
+  g.translate(x, y);
+  g.scale(k, k);
+  g.fillStyle = 'rgba(46, 112, 26, 0.38)';
+  g.beginPath(); g.ellipse(2, ry * 0.45, rx * 1.08, ry * 0.45, 0, 0, Math.PI * 2); g.fill();
+
+  g.fillStyle = sideCol;
+  g.strokeStyle = '#556056';
+  g.lineWidth = 2.5;
+  g.beginPath();
+  g.moveTo(-rx, ry * 0.25);
+  g.quadraticCurveTo(-rx * 0.95, -ry * 0.85, -rx * 0.15, -ry);
+  g.quadraticCurveTo(rx * 0.85, -ry * 0.92, rx, ry * 0.22);
+  g.quadraticCurveTo(rx * 0.6, ry * 0.58, 0, ry * 0.56);
+  g.quadraticCurveTo(-rx * 0.65, ry * 0.56, -rx, ry * 0.25);
+  g.closePath();
+  g.fill();
+  g.stroke();
+
+  g.fillStyle = topCol;
+  g.beginPath();
+  g.ellipse(-rx * 0.08, -ry * 0.22, rx * 0.76, ry * 0.54, -0.08, 0, Math.PI * 2);
+  g.fill();
+  g.restore();
+}
+
+function drawWoodenLog(g, x, y, k) {
+  g.save();
+  g.translate(x, y);
+  g.scale(k, k);
+  g.rotate(-0.22);
+  g.fillStyle = 'rgba(48, 115, 25, 0.36)';
+  g.beginPath(); g.ellipse(0, 14, 38, 14, 0, 0, Math.PI * 2); g.fill();
+
+  g.fillStyle = '#8d562e';
+  g.strokeStyle = '#533016';
+  g.lineWidth = 2.5;
+  g.beginPath();
+  g.roundRect(-32, -14, 64, 28, 12);
+  g.fill();
+  g.stroke();
+
+  g.fillStyle = '#dfb074';
+  g.beginPath();
+  g.ellipse(-26, 0, 9, 13, 0, 0, Math.PI * 2);
+  g.fill();
+  g.stroke();
+  g.restore();
+}
+
+function drawPinkCushion(g, x, y, k) {
+  g.save();
+  g.translate(x, y);
+  g.scale(k, k);
+  g.fillStyle = 'rgba(45, 110, 26, 0.38)';
+  g.beginPath(); g.ellipse(0, 8, 62, 24, 0, 0, Math.PI * 2); g.fill();
+
+  g.fillStyle = '#ea6b86';
+  g.strokeStyle = '#9e3850';
+  g.lineWidth = 2.6;
+  g.beginPath(); g.ellipse(0, 3, 56, 22, 0, 0, Math.PI * 2); g.fill(); g.stroke();
+
+  g.fillStyle = '#ff92aa';
+  g.beginPath(); g.ellipse(0, -1, 46, 16, 0, 0, Math.PI * 2); g.fill();
+  g.restore();
+}
+
+function drawMushrooms(g, x, y, k) {
+  g.save();
+  g.translate(x, y);
+  g.scale(k, k);
+  for (const [mx, my, sc] of [[0, 0, 1], [16, 6, 0.72]]) {
+    g.save();
+    g.translate(mx, my);
+    g.scale(sc, sc);
+    g.fillStyle = '#f6ead4';
+    g.strokeStyle = '#6c4932';
+    g.lineWidth = 2.2;
+    g.beginPath(); g.roundRect(-6, -2, 12, 16, 5); g.fill(); g.stroke();
+    g.fillStyle = '#e84c3d';
+    g.beginPath();
+    g.arc(0, -2, 14, Math.PI, 0);
+    g.closePath();
+    g.fill();
+    g.stroke();
+    g.fillStyle = '#fff8ee';
+    g.beginPath(); g.arc(-5, -8, 2.6, 0, Math.PI * 2); g.arc(5, -7, 2.2, 0, Math.PI * 2); g.arc(0, -11, 2.0, 0, Math.PI * 2); g.fill();
+    g.restore();
+  }
+  g.restore();
+}
+
+// ============================================================================
+// 2. MÂY TRÔI, LÙM CÂY ĐUNG ĐƯA & HOA CỎ TRÊN ĐỒI
+// ============================================================================
+const CLOUDS = [
+  { x: 0.14, y: 0.08, s: 1.05, sp: 0.0045 },
+  { x: 0.42, y: 0.06, s: 1.25, sp: 0.0038 },
+  { x: 0.72, y: 0.09, s: 0.95, sp: 0.0050 },
+  { x: 0.92, y: 0.07, s: 1.15, sp: 0.0042 },
+];
+
+function drawClouds(t) {
+  const k = Math.min(W, H) * 0.001;
+  for (const cl of CLOUDS) {
+    const cx = ((cl.x + t * cl.sp * (0.4 + P.wind * 0.6)) % 1.24 - 0.12) * W;
+    const cy = cl.y * H;
+    const r = 34 * cl.s * k;
+    ctx.save();
+    ctx.translate(cx, cy);
+    // Lớp bóng dưới của mây
+    ctx.fillStyle = '#d9f0ff';
+    ctx.beginPath();
+    ctx.arc(-r * 1.1, r * 0.18, r * 0.72, 0, Math.PI * 2);
+    ctx.arc(0, r * 0.10, r * 0.95, 0, Math.PI * 2);
+    ctx.arc(r * 1.1, r * 0.20, r * 0.76, 0, Math.PI * 2);
+    ctx.fill();
+    // Lớp mây trắng sáng
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(-r * 1.05, 0, r * 0.72, 0, Math.PI * 2);
+    ctx.arc(-r * 0.25, -r * 0.28, r * 0.92, 0, Math.PI * 2);
+    ctx.arc(r * 0.55, -r * 0.12, r * 0.82, 0, Math.PI * 2);
+    ctx.arc(r * 1.15, r * 0.08, r * 0.65, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// Vẽ một cụm lá cây tròn trĩnh nhiều tầng (dùng cho tán cây và các lùm cây bụi)
+function drawLeafCluster(x, y, rad, swayX, swayY, darkCol, midCol, lightCol) {
+  ctx.save();
+  ctx.translate(x + swayX, y + swayY);
+  const blobs = [
+    [-0.55, 0.18, 0.62], [0.55, 0.20, 0.62], [0, 0.24, 0.74],
+    [-0.36, -0.18, 0.66], [0.36, -0.16, 0.66], [0, -0.32, 0.72]
+  ];
+  // Viền tối dịu
+  ctx.fillStyle = '#336e24';
+  ctx.beginPath();
+  for (const [bx, by, br] of blobs) {
+    ctx.moveTo(bx * rad + br * rad + 2.2, by * rad);
+    ctx.arc(bx * rad, by * rad, br * rad + 2.2, 0, Math.PI * 2);
+  }
+  ctx.fill();
+
+  // Tầng lá đậm bên dưới
+  ctx.fillStyle = darkCol;
+  ctx.beginPath();
+  for (const [bx, by, br] of blobs) {
+    ctx.moveTo(bx * rad + br * rad, by * rad + rad * 0.06);
+    ctx.arc(bx * rad, by * rad + rad * 0.06, br * rad, 0, Math.PI * 2);
+  }
+  ctx.fill();
+
+  // Tầng lá trung gian
+  ctx.fillStyle = midCol;
+  ctx.beginPath();
+  for (const [bx, by, br] of blobs) {
+    ctx.moveTo(bx * rad * 0.92 + br * rad * 0.88, by * rad - rad * 0.04);
+    ctx.arc(bx * rad * 0.92, by * rad - rad * 0.04, br * rad * 0.88, 0, Math.PI * 2);
+  }
+  ctx.fill();
+
+  // Tầng lá đón nắng vàng xanh phía trên
+  ctx.fillStyle = lightCol;
+  ctx.beginPath();
+  ctx.arc(-rad * 0.22, -rad * 0.34, rad * 0.48, 0, Math.PI * 2);
+  ctx.arc(rad * 0.20, -rad * 0.28, rad * 0.44, 0, Math.PI * 2);
+  ctx.arc(0, -rad * 0.46, rad * 0.46, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawTreesAndBushesBack(t) {
+  const k = Math.min(W, H) * 0.001;
+  const wAmp = P.wind;
+
+  // Lùm cây phía xa trên đỉnh đồi
+  drawLeafCluster(W * 0.62, H * 0.23, 38 * k, Math.sin(t * 1.6 + 1) * 3 * wAmp, 0, '#4ca638', '#6fd145', '#a9ec55');
+  drawLeafCluster(W * 0.25, H * 0.36, 26 * k, Math.sin(t * 1.9 + 2) * 2.5 * wAmp, 0, '#469e34', '#68c840', '#a3e850');
+  drawLeafCluster(W * 0.78, H * 0.60, 24 * k, Math.sin(t * 2.0 + 4) * 2.5 * wAmp, 0, '#449c33', '#64c43e', '#9ce44e');
+
+  // Tán cây bên trái
+  const lx = W * 0.185, ly = H * 0.29;
+  const lSway = Math.sin(t * 1.8 + 0.5) * 4.5 * wAmp;
+  drawLeafCluster(lx - 34 * k, ly + 12 * k, 38 * k, lSway * 0.8, 0, '#3e912e', '#62c33d', '#9de64e');
+  drawLeafCluster(lx + 34 * k, ly + 10 * k, 36 * k, lSway * 0.9, 0, '#3e912e', '#62c33d', '#9de64e');
+  drawLeafCluster(lx, ly - 16 * k, 46 * k, lSway, Math.cos(t * 1.8) * 1.5 * wAmp, '#489f35', '#71d346', '#b3f05c');
+
+  // Tán cây cổ thụ lớn bên phải
+  const rx = W * 0.805, ry = H * 0.22;
+  const rSway = Math.sin(t * 1.65) * 6.0 * wAmp;
+  const rBob = Math.cos(t * 1.65) * 2.0 * wAmp;
+  drawLeafCluster(rx - 74 * k, ry + 32 * k, 56 * k, rSway * 0.85, rBob, '#3b8c2c', '#5ec03c', '#98e44c');
+  drawLeafCluster(rx + 68 * k, ry + 36 * k, 54 * k, rSway * 0.9, rBob, '#3b8c2c', '#5ec03c', '#98e44c');
+  drawLeafCluster(rx - 32 * k, ry - 12 * k, 64 * k, rSway * 1.05, rBob, '#459b33', '#6ed145', '#aef059');
+  drawLeafCluster(rx + 36 * k, ry - 8 * k, 60 * k, rSway * 1.0, rBob, '#459b33', '#6ed145', '#aef059');
+  drawLeafCluster(rx, ry + 24 * k, 66 * k, rSway * 0.95, rBob, '#4ca237', '#76d84a', '#b8f462');
+}
+
+function drawForegroundFoliage(t) {
+  const k = Math.min(W, H) * 0.001;
+  const wAmp = P.wind;
+  const s1 = Math.sin(t * 1.75) * 5.5 * wAmp;
+  const s2 = Math.sin(t * 1.55 + 1.8) * 5.0 * wAmp;
+
+  // Nhánh cây rủ ở góc trên bên trái (như trong ảnh mẫu)
+  ctx.save();
+  ctx.strokeStyle = '#6c4122';
+  ctx.lineWidth = 14 * k;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-10, H * 0.14);
+  ctx.quadraticCurveTo(W * 0.06, H * 0.08, W * 0.14 + s1 * 0.5, H * 0.02);
+  ctx.stroke();
+  ctx.restore();
+  drawLeafCluster(W * 0.04, H * 0.04, 54 * k, s1 * 0.8, 0, '#3b8e2c', '#62c43d', '#a6ee56');
+  drawLeafCluster(W * 0.13, H * 0.03, 46 * k, s1, 0, '#449932', '#6ed044', '#b2f25e');
+  drawLeafCluster(W * 0.22, H * 0.01, 38 * k, s1 * 1.1, 0, '#4aa036', '#76d849', '#baf564');
+
+  // Các lùm cây bụi lớn ở góc dưới bên trái
+  drawLeafCluster(W * 0.03, H * 0.78, 56 * k, s1 * 0.7, 0, '#317c26', '#52b436', '#8ee048');
+  drawLeafCluster(W * 0.06, H * 0.90, 68 * k, s1 * 0.9, 0, '#38882b', '#5ec03c', '#9ee850');
+  drawLeafCluster(W * 0.17, H * 0.95, 62 * k, s1 * 0.85, 0, '#429431', '#6cd043', '#b0f05a');
+
+  // Các lùm cây bụi ở phía dưới và góc dưới bên phải
+  drawLeafCluster(W * 0.59, H * 0.96, 48 * k, s2 * 0.75, 0, '#358228', '#58ba39', '#94e44c');
+  drawLeafCluster(W * 0.95, H * 0.78, 60 * k, s2 * 0.85, 0, '#317c26', '#52b436', '#8ee048');
+  drawLeafCluster(W * 0.92, H * 0.92, 72 * k, s2, 0, '#39892c', '#60c23d', '#a2ea52');
+  drawLeafCluster(W * 0.81, H * 0.97, 52 * k, s2 * 0.8, 0, '#429431', '#6ad043', '#aef058');
+}
+
+// Hoa dại và bụi cỏ mềm đung đưa trên đồi
+const FLOWERS = [];
+function initFlowers() {
+  FLOWERS.length = 0;
+  const spots = [
+    [0.14, 0.56, 'w'], [0.24, 0.48, 'y'], [0.38, 0.36, 'w'], [0.49, 0.31, 'w'],
+    [0.57, 0.37, 'y'], [0.62, 0.48, 'w'], [0.43, 0.62, 'w'], [0.28, 0.66, 'y'],
+    [0.52, 0.76, 'w'], [0.65, 0.67, 'y'], [0.83, 0.54, 'w'], [0.23, 0.83, 'w'],
+    [0.26, 0.86, 'y'], [0.35, 0.82, 'w'], [0.73, 0.81, 'y'], [0.68, 0.85, 'w']
+  ];
+  spots.forEach(([fx, fy, kind], idx) => {
+    FLOWERS.push({ x: fx, y: fy, kind, ph: idx * 1.1 });
+  });
+}
+initFlowers();
+
+function drawGrassAndFlowers(t) {
+  const k = Math.min(W, H) * 0.001;
+  for (const fl of FLOWERS) {
+    const x = fl.x * W, y = fl.y * H;
+    const sway = Math.sin(t * 2.4 + fl.ph) * 3.5 * P.wind * k;
+    ctx.save();
+    ctx.translate(x, y);
+    // Bụi cỏ nhỏ dưới chân hoa
+    ctx.strokeStyle = '#53a62b';
+    ctx.lineWidth = 2.2 * k;
+    ctx.lineCap = 'round';
+    for (const [dx, h] of [[-5, 9], [0, 12], [5, 8]]) {
+      ctx.beginPath();
+      ctx.moveTo(dx * k, 0);
+      ctx.quadraticCurveTo(dx * k + sway * 0.5, -h * 0.5 * k, dx * k + sway, -h * k);
+      ctx.stroke();
+    }
+    // Bông hoa cúc trắng hoặc hoa vàng
+    const hx = sway, hy = -11 * k;
+    const r = (fl.kind === 'w' ? 4.2 : 3.6) * k;
+    ctx.fillStyle = fl.kind === 'w' ? '#ffffff' : '#ffe042';
+    for (let a = 0; a < 5; a++) {
+      const ang = a * (Math.PI * 2 / 5) + t * 0.2;
+      ctx.beginPath();
+      ctx.arc(hx + Math.cos(ang) * r, hy + Math.sin(ang) * r, r * 0.68, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = fl.kind === 'w' ? '#f7b728' : '#ef8d1a';
+    ctx.beginPath();
+    ctx.arc(hx, hy, r * 0.65, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ============================================================================
+// 3. HỆ THỐNG ĐÀN MÈO: ĐI LẠI (WALK), NGỒI LIẾM LÔNG (GROOM), NẰM NGỦ THỞ (SLEEP)
+// ============================================================================
+const CAT_STYLES = [
+  { name: 'orangeTabby', main: '#f69a38', dark: '#d67219', belly: '#fff6e8', earIn: '#f9a8b6', collar: false },
+  { name: 'grayWhite',   main: '#7b7d84', dark: '#595b61', belly: '#ffffff', earIn: '#f49cab', collar: true  },
+  { name: 'calico',      main: '#ffffff', dark: '#e68832', spot2: '#554d47', belly: '#ffffff', earIn: '#f49cab', collar: false },
+  { name: 'tuxedo',      main: '#66646b', dark: '#48464d', belly: '#f7f5f8', earIn: '#ea93a2', collar: false },
+  { name: 'creamTabby',  main: '#f5b85b', dark: '#d88c28', belly: '#fffaf0', earIn: '#f7a4b2', collar: true  },
+  { name: 'whitePatch',  main: '#fcfcfd', dark: '#6d7078', belly: '#ffffff', earIn: '#f59eae', collar: false },
+];
+
+const cats = [];
+
+function buildCats() {
+  const want = Math.max(3, Math.min(15, Math.round(P.cats)));
+  cats.length = 0;
+
+  // 1) Mèo cam trắng nằm ngủ vừa thở trên đệm hồng dưới gốc cây (cố định vị trí đệm hồng)
+  cats.push({
+    id: 0, mode: 'sleep_cushion', x: 0.685, y: 0.425, dir: -1,
+    style: CAT_STYLES[0], ph: 0.2
+  });
+
+  // 2) Mèo xám trắng ngồi liếm lông cạnh khúc gỗ bên trái
+  cats.push({
+    id: 1, mode: 'groom', x: 0.34, y: 0.415, dir: 1,
+    style: CAT_STYLES[1], ph: 1.4, timer: 999
+  });
+
+  // 3) Mèo trắng đốm nằm ngủ vừa thở trên tảng đá bên phải
+  cats.push({
+    id: 2, mode: 'sleep_rock', x: 0.745, y: 0.568, dir: -1,
+    style: CAT_STYLES[5], ph: 2.7
+  });
+
+  // 4) Mèo xám nằm ngửa phơi bụng vừa ngủ vừa thở trên cỏ (góc dưới phải)
+  if (want >= 4) {
+    cats.push({
+      id: 3, mode: 'sleep_belly', x: 0.63, y: 0.76, dir: 1,
+      style: CAT_STYLES[3], ph: 3.8
+    });
+  }
+
+  // Các chú mèo đi lại, ngồi liếm lông và nằm nghỉ trên khắp đồi cỏ
+  const baseWalkers = [
+    { x: 0.50, y: 0.52, tx: 0.58, ty: 0.56, mode: 'walk', style: CAT_STYLES[0] },
+    { x: 0.36, y: 0.74, tx: 0.48, ty: 0.70, mode: 'walk', style: CAT_STYLES[1] },
+    { x: 0.16, y: 0.58, tx: 0.28, ty: 0.55, mode: 'walk', style: CAT_STYLES[2] },
+    { x: 0.45, y: 0.39, tx: 0.55, ty: 0.42, mode: 'groom', style: CAT_STYLES[4] },
+  ];
+
+  for (let i = cats.length; i < want; i++) {
+    const bw = baseWalkers[(i - 4) % baseWalkers.length];
+    const u1 = sRand(i * 19 + 3), u2 = sRand(i * 23 + 7);
+    const x = i < 8 ? bw.x : (0.24 + u1 * 0.48);
+    const y = i < 8 ? bw.y : (0.36 + u2 * 0.42);
+    const tx = 0.24 + sRand(i * 31 + 11) * 0.46;
+    const ty = 0.36 + sRand(i * 37 + 13) * 0.42;
+    const initMode = i < 8 ? bw.mode : (i % 3 === 0 ? 'groom' : 'walk');
+    cats.push({
+      id: i,
+      mode: initMode,
+      x, y, tx, ty,
+      dir: tx >= x ? 1 : -1,
+      sp: 0.028 + (i % 3) * 0.005,
+      style: CAT_STYLES[i % CAT_STYLES.length],
+      ph: i * 1.37,
+      timer: 5 + (i * 2.3) % 7
+    });
+  }
+}
+
+function stepCats(dt) {
+  const want = Math.max(3, Math.min(15, Math.round(P.cats)));
+  if (cats.length !== want) buildCats();
+
+  for (const c of cats) {
+    c.ph += dt * 4.2;
+    if (c.mode === 'sleep_cushion' || c.mode === 'sleep_rock' || c.mode === 'sleep_belly') continue;
+
+    c.timer -= dt;
+    if (c.mode === 'walk') {
+      const dx = c.tx - c.x, dy = c.ty - c.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 0.015 || c.timer <= 0) {
+        // Khi đi tới đích: chuyển sang ngồi liếm lông hoặc chọn điểm đi mới
+        if (Math.sin(c.ph * 3.1 + c.id) > 0.15) {
+          c.mode = 'groom';
+          c.timer = 4.5 + (c.id % 3) * 1.8;
+        } else {
+          c.tx = 0.22 + ((Math.sin(c.ph * 1.7 + c.id * 2.1) + 1) * 0.5) * 0.46;
+          c.ty = 0.35 + ((Math.cos(c.ph * 1.3 + c.id * 3.7) + 1) * 0.5) * 0.42;
+          c.timer = 6 + (c.id % 4) * 2;
+        }
+      } else {
+        const vx = (dx / dist) * c.sp;
+        const vy = (dy / dist) * c.sp * 0.75;
+        c.x += vx * dt;
+        c.y += vy * dt;
+        if (Math.abs(vx) > 0.002) c.dir = vx > 0 ? 1 : -1;
+      }
+    } else if (c.mode === 'groom' && c.id !== 1) {
+      if (c.timer <= 0) {
+        c.mode = 'walk';
+        c.tx = 0.22 + ((Math.sin(c.ph * 2.3 + c.id) + 1) * 0.5) * 0.46;
+        c.ty = 0.35 + ((Math.cos(c.ph * 1.9 + c.id * 2) + 1) * 0.5) * 0.42;
+        c.dir = c.tx >= c.x ? 1 : -1;
+        c.timer = 6 + (c.id % 4) * 2;
+      }
+    }
+  }
+}
+
+// Vẽ từng chú mèo theo trạng thái (đi bộ, ngồi liếm lông, nằm ngủ thở)
+function drawCat(c, t) {
+  const k = Math.min(W, H) * 0.00108;
+  const x = c.x * W, y = c.y * H;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(k, k);
+
+  if (c.mode === 'sleep_cushion' || c.mode === 'sleep_rock') {
+    drawSleepingCurledCat(c, t);
+  } else if (c.mode === 'sleep_belly') {
+    drawSleepingBellyCat(c, t);
+  } else if (c.mode === 'groom') {
+    drawGroomingCat(c, t);
+  } else {
+    drawWalkingCat(c, t);
+  }
+  ctx.restore();
+}
+
+// 3.1 Mèo nằm cuộn tròn vừa ngủ vừa thở (phập phồng lồng ngực + chữ zZZ)
+function drawSleepingCurledCat(c, t) {
+  const st = c.style;
+  const breath = Math.sin(t * 2.2 + c.ph); // Nhịp thở phập phồng
+  const sx = 1 + breath * 0.035;
+  const sy = 1 - breath * 0.048;
+
+  ctx.save();
+  ctx.scale(c.dir, 1);
+
+  // Bóng dịu dưới thân mèo
+  ctx.fillStyle = 'rgba(40, 70, 25, 0.22)';
+  ctx.beginPath(); ctx.ellipse(0, 12, 38, 12, 0, 0, Math.PI * 2); ctx.fill();
+
+  ctx.save();
+  ctx.scale(sx, sy);
+
+  // Thân mèo cuộn tròn
+  ctx.fillStyle = st.main;
+  ctx.strokeStyle = '#4a3121';
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.ellipse(4, -2, 34, 21, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Mảng bụng trắng ấm áp
+  ctx.fillStyle = st.belly;
+  ctx.beginPath();
+  ctx.ellipse(2, 6, 24, 11, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Vằn lưng hoặc đốm lông
+  ctx.fillStyle = st.dark;
+  for (const bx of [6, 16, 25]) {
+    ctx.beginPath();
+    ctx.ellipse(bx, -14, 3.5, 8, 0.25, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Đuôi cuộn quanh người
+  ctx.fillStyle = st.main;
+  ctx.beginPath();
+  ctx.moveTo(30, 4);
+  ctx.quadraticCurveTo(42, 12, 24, 15);
+  ctx.quadraticCurveTo(14, 16, 16, 9);
+  ctx.quadraticCurveTo(26, 9, 30, 4);
+  ctx.fill();
+  ctx.stroke();
+
+  // Đầu mèo gối lên chân trước
+  ctx.translate(-16, 1);
+  // Hai bàn chân nhỏ phía trước
+  ctx.fillStyle = st.belly;
+  ctx.beginPath(); ctx.ellipse(-10, 11, 7, 4.5, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(4, 12, 7, 4.5, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  // Khuôn mặt tròn bầu bĩnh
+  ctx.fillStyle = st.main;
+  ctx.beginPath(); ctx.ellipse(0, -2, 19, 15, -0.08, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = st.belly;
+  ctx.beginPath(); ctx.ellipse(-1, 3, 15, 10, 0, 0, Math.PI * 2); ctx.fill();
+
+  // Đôi tai
+  drawCatEar(-12, -12, -0.35, st.main, st.earIn);
+  drawCatEar(10, -13, 0.32, st.main, st.earIn);
+
+  // Đôi mắt nhắm ngủ bình yên
+  ctx.strokeStyle = '#4a3121';
+  ctx.lineWidth = 2.0;
+  ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(-6, 1, 3.8, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+  ctx.beginPath(); ctx.arc(6, 1, 3.8, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+
+  // Mũi hồng & miệng nhỏ
+  ctx.fillStyle = '#f28294';
+  ctx.beginPath(); ctx.arc(0, 4, 2.0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  ctx.restore();
+
+  // Bong bóng chữ "z Z Z" bay lên theo nhịp thở
+  drawSleepZzz(t, c.ph, 22, -22);
+}
+
+// 3.2 Mèo nằm ngửa phơi bụng vừa ngủ vừa thở trên thảm cỏ
+function drawSleepingBellyCat(c, t) {
+  const st = c.style;
+  const breath = Math.sin(t * 2.3 + c.ph); // Bụng phồng xẹp rõ rệt khi ngủ
+
+  // Bóng dưới lưng
+  ctx.fillStyle = 'rgba(42, 95, 24, 0.32)';
+  ctx.beginPath(); ctx.ellipse(0, 8, 36, 16, -0.2, 0, Math.PI * 2); ctx.fill();
+
+  ctx.save();
+  ctx.rotate(-0.22);
+
+  // Thân mèo nằm ngửa
+  ctx.fillStyle = st.main;
+  ctx.strokeStyle = '#3e2d24';
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.ellipse(0, 2, 31 + breath * 1.6, 18 + breath * 1.8, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Bụng trắng phập phồng theo nhịp thở
+  ctx.fillStyle = st.belly;
+  ctx.beginPath();
+  ctx.ellipse(0, 2 - breath * 1.2, 21 + breath * 2.2, 13 + breath * 1.8, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Đầu mèo ở phía trên bên phải
+  ctx.save();
+  ctx.translate(22, -8);
+  drawCatEar(-9, -12, -0.3, st.main, st.earIn);
+  drawCatEar(10, -10, 0.4, st.main, st.earIn);
+  ctx.fillStyle = st.main;
+  ctx.beginPath(); ctx.ellipse(0, 0, 16, 13, 0.2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = st.belly;
+  ctx.beginPath(); ctx.ellipse(-1, 3, 11, 8, 0.2, 0, Math.PI * 2); ctx.fill();
+  // Mắt nhắm ngủ
+  ctx.strokeStyle = '#3e2d24';
+  ctx.lineWidth = 1.9;
+  ctx.beginPath(); ctx.arc(-4, 0, 3.2, 0.1 * Math.PI, 0.9 * Math.PI); ctx.stroke();
+  ctx.beginPath(); ctx.arc(5, 1, 3.2, 0.1 * Math.PI, 0.9 * Math.PI); ctx.stroke();
+  ctx.fillStyle = '#f4889a';
+  ctx.beginPath(); ctx.arc(0, 3, 1.8, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // 4 chân nhỏ giơ lên trời kèm đệm thịt hồng
+  const pawPositions = [[-18, -11], [-22, 10], [10, -13], [14, 12]];
+  for (const [px, py] of pawPositions) {
+    ctx.fillStyle = st.belly;
+    ctx.beginPath();
+    ctx.ellipse(px, py - breath * 0.8, 6.5, 4.8, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#f598a8';
+    ctx.beginPath();
+    ctx.arc(px, py - breath * 0.8, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  drawSleepZzz(t, c.ph, 28, -26);
+}
+
+// 3.3 Mèo ngồi liếm lông (giơ chân trước lên miệng + lưỡi hồng liếm nhịp nhàng)
+function drawGroomingCat(c, t) {
+  const st = c.style;
+  const lick = Math.sin(t * 6.2 + c.ph); // Nhịp liếm lông
+
+  // Bóng dưới chân
+  ctx.fillStyle = 'rgba(44, 102, 26, 0.34)';
+  ctx.beginPath(); ctx.ellipse(0, 18, 28, 10, 0, 0, Math.PI * 2); ctx.fill();
+
+  ctx.save();
+  ctx.scale(c.dir, 1);
+
+  // Đuôi ngoe nguẩy nhẹ phía sau
+  const tailWag = Math.sin(t * 2.8 + c.ph) * 0.18;
+  ctx.save();
+  ctx.translate(-18, 12);
+  ctx.rotate(tailWag);
+  ctx.fillStyle = st.dark;
+  ctx.strokeStyle = '#4a3121';
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.quadraticCurveTo(-22, -8, -18, -28);
+  ctx.quadraticCurveTo(-14, -34, -8, -26);
+  ctx.quadraticCurveTo(-10, -10, 4, -2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+
+  // Thân mèo ngồi tròn trịa
+  ctx.fillStyle = st.main;
+  ctx.strokeStyle = '#4a3121';
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.ellipse(-2, 2, 22, 18, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Ngực và bụng trắng
+  ctx.fillStyle = st.belly;
+  ctx.beginPath();
+  ctx.ellipse(2, 4, 15, 14, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Chân sau và một chân trước chống đất
+  ctx.fillStyle = st.belly;
+  ctx.beginPath(); ctx.ellipse(-10, 16, 8, 5, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(8, 16, 7, 5, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  // Đầu mèo hơi cúi nghiêng theo nhịp liếm lông
+  ctx.save();
+  ctx.translate(2, -16 + lick * 1.4);
+  ctx.rotate(0.08 + lick * 0.06);
+
+  drawCatEar(-13, -13, -0.32, st.dark, st.earIn);
+  drawCatEar(11, -13, 0.32, st.dark, st.earIn);
+
+  ctx.fillStyle = st.main;
+  ctx.beginPath(); ctx.ellipse(0, 0, 20, 16, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  ctx.fillStyle = st.belly;
+  ctx.beginPath(); ctx.ellipse(0, 4, 15, 11, 0, 0, Math.PI * 2); ctx.fill();
+
+  // Đôi mắt nhắm tít thích thú khi liếm lông
+  ctx.strokeStyle = '#4a3121';
+  ctx.lineWidth = 2.1;
+  ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(-7, -1, 4.0, 1.15 * Math.PI, 1.85 * Math.PI); ctx.stroke();
+  ctx.beginPath(); ctx.arc(7, -1, 4.0, 1.15 * Math.PI, 1.85 * Math.PI); ctx.stroke();
+
+  // Chiếc lưỡi hồng nhỏ thè ra liếm chân trước
+  const tongueLen = 4.2 + Math.max(0, lick) * 3.5;
+  ctx.fillStyle = '#ff6b8b';
+  ctx.strokeStyle = '#a8324c';
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.ellipse(2, 5 + tongueLen * 0.35, 3.2, tongueLen * 0.55, 0.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Mũi hồng
+  ctx.fillStyle = '#f07c90';
+  ctx.beginPath(); ctx.arc(0, 2.5, 2.1, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // Chân trước giơ lên trước ngực/miệng để liếm lông
+  ctx.save();
+  ctx.translate(7, -5 - lick * 1.8);
+  ctx.rotate(-0.45 + lick * 0.12);
+  ctx.fillStyle = st.belly;
+  ctx.strokeStyle = '#4a3121';
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 8.5, 5.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  // Đệm chân hồng
+  ctx.fillStyle = '#f798aa';
+  ctx.beginPath(); ctx.arc(-2, -1, 2.2, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  ctx.restore();
+}
+
+// 3.4 Mèo mập lon ton đi bộ trên đồi cỏ
+function drawWalkingCat(c, t) {
+  const st = c.style;
+  const step = c.ph * 1.65;
+  const bob = Math.abs(Math.sin(step)) * 2.6;
+  const s1 = Math.sin(step) * 6.5;
+  const s2 = -s1;
+
+  // Bóng đổ trên cỏ
+  ctx.fillStyle = 'rgba(44, 102, 26, 0.32)';
+  ctx.beginPath(); ctx.ellipse(0, 18, 30, 9.5, 0, 0, Math.PI * 2); ctx.fill();
+
+  ctx.save();
+  ctx.scale(c.dir, 1);
+  ctx.translate(0, -bob);
+
+  // Đuôi cong cao ngoe nguẩy phía sau
+  const wag = Math.sin(t * 4.5 + c.ph) * 0.16;
+  ctx.save();
+  ctx.translate(-22, -2);
+  ctx.rotate(wag);
+  ctx.fillStyle = st.main;
+  ctx.strokeStyle = '#4a3121';
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.moveTo(0, 2);
+  ctx.quadraticCurveTo(-18, -10, -14, -28);
+  ctx.quadraticCurveTo(-10, -35, -4, -27);
+  ctx.quadraticCurveTo(-6, -12, 5, -2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+
+  // Hai chân phía xa
+  drawWalkPaw(-12 + s2 * 0.7, 13, st.belly);
+  drawWalkPaw(11 + s1 * 0.7, 13, st.belly);
+
+  // Thân mèo tròn mập
+  ctx.fillStyle = st.main;
+  ctx.strokeStyle = '#4a3121';
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.ellipse(-2, 2, 24, 15, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Bụng sáng màu
+  ctx.fillStyle = st.belly;
+  ctx.beginPath();
+  ctx.ellipse(0, 7, 18, 8.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Vằn lưng hoặc đốm tam thể
+  ctx.fillStyle = st.dark;
+  if (st.spot2) {
+    ctx.beginPath(); ctx.ellipse(-8, -4, 8, 6, -0.2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = st.spot2;
+    ctx.beginPath(); ctx.ellipse(4, -5, 6, 5, 0.2, 0, Math.PI * 2); ctx.fill();
+  } else {
+    for (const bx of [-12, -4, 4]) {
+      ctx.beginPath(); ctx.ellipse(bx, -8, 3, 6.5, 0.15, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // Hai chân phía gần
+  drawWalkPaw(-12 + s1, 14, st.belly);
+  drawWalkPaw(11 + s2, 14, st.belly);
+
+  // Vòng cổ đỏ và chuông vàng (nếu có)
+  if (st.collar) {
+    ctx.strokeStyle = '#e03b3b';
+    ctx.lineWidth = 4.2;
+    ctx.beginPath();
+    ctx.arc(12, 1, 12, -0.35 * Math.PI, 0.42 * Math.PI);
+    ctx.stroke();
+    ctx.fillStyle = '#ffd43b';
+    ctx.strokeStyle = '#6b4417';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.arc(19, 10, 4.2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+
+  // Đầu mèo hướng về phía trước
+  ctx.save();
+  ctx.translate(16, -7);
+  drawCatEar(-10, -13, -0.28, st.dark, st.earIn);
+  drawCatEar(10, -13, 0.28, st.main, st.earIn);
+
+  ctx.fillStyle = st.main;
+  ctx.strokeStyle = '#4a3121';
+  ctx.lineWidth = 2.4;
+  ctx.beginPath(); ctx.ellipse(0, 0, 18, 15, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  ctx.fillStyle = st.belly;
+  ctx.beginPath(); ctx.ellipse(2, 4, 13, 9.5, 0, 0, Math.PI * 2); ctx.fill();
+
+  // Đôi mắt cười vui vẻ
+  ctx.strokeStyle = '#4a3121';
+  ctx.lineWidth = 2.1;
+  ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(-4, -1, 3.5, 1.15 * Math.PI, 1.85 * Math.PI); ctx.stroke();
+  ctx.beginPath(); ctx.arc(7, -1, 3.5, 1.15 * Math.PI, 1.85 * Math.PI); ctx.stroke();
+
+  // Má hồng, mũi hồng và khuôn miệng ":3"
+  ctx.fillStyle = 'rgba(255, 130, 150, 0.48)';
+  ctx.beginPath(); ctx.ellipse(-8, 3.5, 3.2, 2.0, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(10, 3.5, 3.2, 2.0, 0, 0, Math.PI * 2); ctx.fill();
+
+  ctx.fillStyle = '#f07c90';
+  ctx.beginPath(); ctx.arc(2, 2.5, 2.0, 0, Math.PI * 2); ctx.fill();
+
+  ctx.strokeStyle = '#4a3121';
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.arc(0, 4.5, 2.4, 0, Math.PI);
+  ctx.arc(4.8, 4.5, 2.4, 0, Math.PI);
+  ctx.stroke();
+
+  ctx.restore();
+  ctx.restore();
+}
+
+function drawCatEar(x, y, rot, outerCol, innerCol) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+  ctx.fillStyle = outerCol;
+  ctx.strokeStyle = '#4a3121';
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(-7, 6);
+  ctx.quadraticCurveTo(-5, -8, 0, -10);
+  ctx.quadraticCurveTo(5, -8, 7, 6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = innerCol;
+  ctx.beginPath();
+  ctx.moveTo(-3.8, 4);
+  ctx.quadraticCurveTo(-2.5, -4, 0, -5.5);
+  ctx.quadraticCurveTo(2.5, -4, 3.8, 4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawWalkPaw(x, y, col) {
+  ctx.fillStyle = col;
+  ctx.strokeStyle = '#4a3121';
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.ellipse(x, y, 5.5, 6.8, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+}
+
+function drawSleepZzz(t, ph, ox, oy) {
+  ctx.save();
+  ctx.font = '800 13px "Segoe UI", sans-serif';
+  ctx.textAlign = 'center';
+  for (let i = 0; i < 3; i++) {
+    const p = (t * 0.55 + ph + i * 0.33) % 1;
+    const alpha = Math.sin(p * Math.PI);
+    const zx = ox + i * 9 + p * 12;
+    const zy = oy - i * 7 - p * 18;
+    const sc = 0.72 + p * 0.55;
+    ctx.save();
+    ctx.translate(zx, zy);
+    ctx.scale(sc, sc);
+    ctx.globalAlpha = alpha * 0.92;
+    ctx.strokeStyle = '#3f5d2a';
+    ctx.lineWidth = 3.2;
+    ctx.strokeText('Z', 0, 0);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('Z', 0, 0);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ============================================================================
+// 4. HỆ THỐNG GIÓ THỔI LÁ BAY & LÁ RỤNG TRÊN CỎ + BƯƠM BƯỚM VÀNG
+// ============================================================================
+const leaves = [];
+const LEAF_SPAWNS = [
+  [0.78, 0.24], [0.84, 0.28], [0.72, 0.20], // Tán cây lớn bên phải
+  [0.18, 0.28], [0.10, 0.08], [0.22, 0.04], // Cây bên trái & nhánh cây trên cao
+  [0.60, 0.23]                              // Lùm cây trên đỉnh đồi
+];
+
+function spawnLeaf(randomProgress) {
+  const sp = LEAF_SPAWNS[Math.floor(Math.random() * LEAF_SPAWNS.length)];
+  const golden = Math.random() < 0.62;
+  const x = randomProgress ? Math.random() : sp[0] + (Math.random() - 0.5) * 0.08;
+  const y = randomProgress ? (0.12 + Math.random() * 0.72) : sp[1] + (Math.random() - 0.5) * 0.06;
+  return {
+    x, y,
+    vx: -0.045 - Math.random() * 0.045,
+    vy: 0.028 + Math.random() * 0.025,
+    ang: Math.random() * Math.PI * 2,
+    spin: (Math.random() - 0.5) * 3.2,
+    ph: Math.random() * Math.PI * 2,
+    size: 0.8 + Math.random() * 0.55,
+    col1: golden ? '#f9cb35' : '#8edb38',
+    col2: golden ? '#e4961c' : '#5eb326',
+    landed: false,
+    landTimer: 0,
+    groundY: Math.min(0.92, Math.max(0.38, y + 0.18 + Math.random() * 0.36))
+  };
+}
+
+function stepAndDrawLeaves(dt, t) {
+  const want = Math.round(P.leaves * 28);
+  while (leaves.length < want) leaves.push(spawnLeaf(true));
+  if (leaves.length > want) leaves.length = want;
+
+  const k = Math.min(W, H) * 0.00105;
+  const wMul = Math.max(0.25, P.wind);
+
+  for (let i = 0; i < leaves.length; i++) {
+    const lf = leaves[i];
+    if (!lf.landed) {
+      lf.ph += dt * 3.2 * wMul;
+      lf.x += (lf.vx * wMul + Math.sin(lf.ph) * 0.018) * dt;
+      lf.y += (lf.vy + Math.cos(lf.ph * 0.8) * 0.008) * dt;
+      lf.ang += lf.spin * dt * wMul;
+
+      if (lf.y >= lf.groundY && lf.x > 0.08 && lf.x < 0.92) {
+        lf.landed = true;
+        lf.landTimer = 3.5 + Math.random() * 4.0;
+      } else if (lf.x < -0.06 || lf.y > 1.04) {
+        leaves[i] = spawnLeaf(false);
+        continue;
+      }
+    } else {
+      lf.landTimer -= dt;
+      if (lf.landTimer <= 0) {
+        leaves[i] = spawnLeaf(false);
+        continue;
+      }
+    }
+
+    const px = lf.x * W, py = lf.y * H;
+    const r = 10.5 * lf.size * k;
+    const alpha = lf.landed ? Math.min(1, lf.landTimer * 0.8) : 1;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(px, py);
+
+    // Bóng chiếc lá trên mặt cỏ
+    const shadowY = lf.landed ? 2.5 * k : 14 * k;
+    ctx.fillStyle = 'rgba(42, 96, 22, 0.22)';
+    ctx.beginPath();
+    ctx.ellipse(0, shadowY, r * 0.85, r * 0.35, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.rotate(lf.ang);
+    const tilt = lf.landed ? 0.65 : (0.55 + 0.45 * Math.abs(Math.cos(lf.ph)));
+    ctx.scale(1, tilt);
+
+    // Hình chiếc lá có cuống và gân lá
+    ctx.fillStyle = lf.col1;
+    ctx.strokeStyle = '#634218';
+    ctx.lineWidth = 1.6 * k;
+    ctx.beginPath();
+    ctx.moveTo(-r, 0);
+    ctx.quadraticCurveTo(0, -r * 0.85, r, 0);
+    ctx.quadraticCurveTo(0, r * 0.85, -r, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Nửa lá đậm màu và gân giữa
+    ctx.fillStyle = lf.col2;
+    ctx.beginPath();
+    ctx.moveTo(-r, 0);
+    ctx.quadraticCurveTo(0, r * 0.85, r, 0);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = '#634218';
+    ctx.lineWidth = 1.3 * k;
+    ctx.beginPath();
+    ctx.moveTo(-r * 1.25, 0);
+    ctx.lineTo(r * 0.85, 0);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// Bươm bướm vàng bay lượn trên đồi cỏ
+const butterflies = [];
+function stepAndDrawButterflies(dt, t) {
+  const want = Math.max(0, Math.min(6, Math.round(P.butterflies)));
+  while (butterflies.length < want) {
+    butterflies.push({
+      x: 0.20 + Math.random() * 0.55,
+      y: 0.42 + Math.random() * 0.32,
+      a: Math.random() * Math.PI * 2,
+      ph: Math.random() * 6.28
+    });
+  }
+  if (butterflies.length > want) butterflies.length = want;
+
+  const k = Math.min(W, H) * 0.00105;
+  for (const b of butterflies) {
+    b.ph += dt * 11.0;
+    b.a += Math.sin(t * 1.7 + b.ph * 0.1) * dt * 0.9;
+    b.x += Math.cos(b.a) * 0.025 * dt;
+    b.y += (Math.sin(b.a) * 0.018 + Math.sin(b.ph * 0.5) * 0.008) * dt;
+    if (b.x < 0.15) b.a = 0.1;
+    if (b.x > 0.82) b.a = Math.PI - 0.1;
+    if (b.y < 0.32) b.a = Math.PI * 0.5;
+    if (b.y > 0.80) b.a = -Math.PI * 0.5;
+
+    const flap = 0.35 + 0.65 * Math.abs(Math.sin(b.ph));
+    ctx.save();
+    ctx.translate(b.x * W, b.y * H);
+    ctx.scale(k, k);
+    ctx.rotate(Math.cos(b.a) >= 0 ? 0.2 : -0.2);
+    ctx.scale(flap, 1);
+
+    ctx.fillStyle = '#ffd639';
+    ctx.strokeStyle = '#5c3b16';
+    ctx.lineWidth = 2.0;
+    ctx.beginPath();
+    ctx.ellipse(-6, -4, 8, 6, -0.35, 0, Math.PI * 2);
+    ctx.ellipse(6, -4, 8, 6, 0.35, 0, Math.PI * 2);
+    ctx.ellipse(-5, 4, 6, 4.8, 0.3, 0, Math.PI * 2);
+    ctx.ellipse(5, 4, 6, 4.8, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ============================================================================
+// 5. VÒNG LẶP KHUNG HÌNH & KẾT NỐI HOST DESKLAND
+// ============================================================================
+function commit() { return true; }
+function settled() { return true; }
+
+function resize() {
+  W = innerWidth; H = innerHeight;
+  const scale = PREVIEW ? 0.5 : Math.min(devicePixelRatio || 1, 0.85);
+  const box = cv.getBoundingClientRect();
+  cv.width = Math.round((box.width || W) * scale);
+  cv.height = Math.round((box.height || H) * scale);
+  cv._scale = scale;
+  cacheOK = false;
+}
+
+const T0 = performance.now();
+let lastT = 0, frameN = 0, paused = false;
+
+function draw(now) {
+  if (!cacheOK || bgCv.width !== cv.width || bgCv.height !== cv.height) {
+    renderStaticBackground();
+  }
+  const s = cv._scale || 1;
+  const t = (now - T0) / 1000;
+
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(bgCv, 0, 0);
+  ctx.scale(s, s);
+
+  // 1. Mây trôi trên bầu trời
+  drawClouds(t);
+
+  // 2. Tán cây lớn và các lùm cây phía sau đung đưa theo gió
+  drawTreesAndBushesBack(t);
+
+  // 3. Hoa cúc trắng & hoa vàng trên đồi cỏ
+  drawGrassAndFlowers(t);
+
+  // 4. Đàn mèo sắp xếp theo chiều sâu Y (đi lại, ngồi liếm lông, nằm vừa ngủ vừa thở)
+  const sortedCats = cats.slice().sort((a, b) => a.y - b.y);
+  for (const c of sortedCats) drawCat(c, t);
+
+  // 5. Bươm bướm vàng
+  stepAndDrawButterflies(0.016, t);
+
+  // 6. Các lùm cây tiền cảnh ở 4 góc
+  drawForegroundFoliage(t);
+
+  // 7. Gió thổi lá bay & lá rụng trên đồi cỏ
+  stepAndDrawLeaves(0.016, t);
+
+  ctx.restore();
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (paused) { lastT = 0; return; }
+  if (P.cap30 && now - lastT < 34) return;
+  const dt = lastT ? Math.min((now - lastT) / 1000, 0.08) : 0.03;
+  lastT = now;
+  stepCats(dt);
+  draw(now);
+  frameN++;
+}
+
+function reseed(v) {
+  seed = v;
+  cacheOK = false;
+  buildCats();
+}
+
+function applySettings(v) {
+  if (typeof v.seed === 'number' && v.seed !== seed) reseed(v.seed);
+  for (const k in v) {
+    if (!SLIDERS.some(s => s.key === k) || typeof v[k] !== typeof P[k] || P[k] === v[k]) continue;
+    P[k] = v[k];
+    if (k === 'cats') buildCats();
+  }
+}
+
+function drawGhosts() {
+  const box = document.getElementById('ghosts');
+  if (!box) return;
+  box.innerHTML = icons.map(ic => `<div class="ghost" style="left:${ic.x}px;top:${ic.y}px;width:${ic.w}px;height:${ic.h}px"><i></i><b></b></div>`).join('');
+}
+
+function startHostedMode() {
+  document.body.classList.add('wall');
+  if (PREVIEW) {
+    document.body.classList.add('preview');
+    const g = document.createElement('div'); g.id = 'ghosts'; document.body.appendChild(g);
+  }
+  const handle = m => {
+    if (m.t === 'pause') { paused = !!m.v; return; }
+    if (m.t === 'settings') { applySettings(m.v || {}); return; }
+    if (m.t === 'reset') { applySettings(Object.assign({}, DEFAULTS, m.v || {})); return; }
+    if (m.t !== 'icons') return;
+    const k = window.devicePixelRatio || 1;
+    icons = m.vis ? m.r.map(([l, t, r, b]) => ({ x: l / k, y: t / k, w: (r - l) / k, h: (b - t) / k })) : [];
+    if (PREVIEW) drawGhosts();
+  };
+  if (PREVIEW) {
+    addEventListener('message', ev => { if (ev.source === parent) handle(typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data); });
+    parent.postMessage(JSON.stringify({ t: 'ready' }), '*');
+    return;
+  }
+  const host = window.chrome && window.chrome.webview;
+  if (!host) return;
+  host.addEventListener('message', ev => handle(JSON.parse(ev.data)));
+  host.postMessage('ready');
+}
+
+let resizeT = 0;
+addEventListener('resize', () => {
+  clearTimeout(resizeT);
+  resizeT = setTimeout(resize, 100);
+});
+
+resize();
+buildCats();
+if (WALL || PREVIEW) startHostedMode();
+requestAnimationFrame(frame);
+</script>
+<script src="share.js"></script>
+</body>
+</html>

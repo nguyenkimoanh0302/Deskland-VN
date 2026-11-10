@@ -21,7 +21,7 @@ Deskland biến không gian quanh các biểu tượng màn hình nền thành m
 
 Theo Mục 5a của giấy phép GNU GPL v3.0, bản sửa đổi này bao gồm các thay đổi sau so với bản gốc:
 
-1. **9 chủ đề WebGL2 hoàn chỉnh (loại bỏ toàn bộ các thẻ chủ đề khóa/phải mua):**
+1. **10 chủ đề hoàn chỉnh (loại bỏ toàn bộ các thẻ chủ đề khóa/phải mua):**
    - **Đồng cỏ (`meadow.html`):** Mây trôi và bóng mây trên đồng cỏ, cậu bé thả diều và chú mèo đen nhỏ (tác giả gốc).
    - **Bãi biển (`flat.html`):** Sóng biển màu ngọc lam, thuyền kayak, chim biển và hàng dừa (tác giả gốc).
    - **Maldives (`maldives.html`):** Biển ngọc bích trong vắt, rạn san hô, đàn cá nhiệt đới, rùa biển, thuyền kayak và cây dừa.
@@ -31,9 +31,14 @@ Theo Mục 5a của giấy phép GNU GPL v3.0, bản sửa đổi này bao gồm
    - **Rừng mưa nhiệt đới (`rainforest.html`):** Tán rừng nhiệt đới rậm rạp, sông Amazon uốn lượn, mưa rơi, đom đóm và chim Toucan.
    - **Mùa hoa mận Mộc Châu (`mocchau.html`):** Đồi chè xanh, rừng hoa mận trắng nở rộ, sương mù bảng lảng và cánh hoa bay trong gió.
    - **Hoa đào ngày Tết (`tet-sakura.html`):** Sắc xuân truyền thống với hoa đào hồng thắm, cánh hoa rơi trên mặt hồ, đèn lồng đỏ, cá chép vàng và én xuân.
+   - **Đồi mèo nắng ấm (`cat-hill.html`):** Đồi cỏ xanh mướt có lùm cây đung đưa, lá bay & lá rụng trong gió cùng đàn mèo mập đi dạo, ngồi liếm lông và nằm vừa ngủ vừa thở.
 2. **Hỗ trợ đa màn hình (Multi-Monitor):** Tự động nhận diện và hiển thị hình nền trên tất cả các màn hình đang kết nối (`Screen.AllScreens`).
 3. **Tối ưu hiệu năng GPU:** Giảm tải độ phân giải nội suy (`scale <= 0.72`) và giới hạn tốc độ khung hình ổn định (~24–30 fps) giúp tiết kiệm tài nguyên GPU tích hợp lẫn GPU rời.
 4. **Việt hóa toàn diện:** Thay thế toàn bộ ngôn ngữ tiếng Trung bằng **Tiếng Việt (`vi`)** và **Tiếng Anh (`en`)**.
+5. **Màn hình khóa động & Widget đồng hồ (Live Lock Screen & `Win+L`):**
+   - Hiển thị màn hình khóa động toàn màn hình với **Widget Đồng hồ & Ngày tháng** theo phong cách Glassmorphism, nơi cảnh vật (bờ biển, mây trắng, rừng hoa mận, cành đào Tết...) tự động uốn lượn bao quanh chính chiếc Widget.
+   - Bắt trực tiếp phím **`Win + L`** (hoặc `Ctrl+Alt+L`, nút **Khóa màn hình** trong Cài đặt / khay hệ thống, tự động bật khi máy nghỉ) để mở ngay màn hình khóa động WebGL2 kèm tùy chọn đặt **mã PIN** bảo vệ và chặn các phím chuyển đổi cửa sổ (`Alt+Tab`, `Win`, `Alt+F4`).
+   - Tự động đồng bộ ảnh chụp cảnh hiện tại (có uốn địa hình quanh vị trí đồng hồ Windows 11) làm hình nền màn hình khóa mặc định của hệ thống.
 
 ---
 
@@ -86,8 +91,9 @@ Mở **http://localhost:5178/settings.html** trên trình duyệt. Chế độ t
 | `prototype/rainforest.html` | Chủ đề Rừng mưa nhiệt đới |
 | `prototype/mocchau.html` | Chủ đề Mùa hoa mận Mộc Châu |
 | `prototype/tet-sakura.html` | Chủ đề Hoa đào ngày Tết |
+| `prototype/cat-hill.html` | Chủ đề Đồi mèo nắng ấm |
 | `prototype/settings.html` | Giao diện Cài đặt |
-| `prototype/themes.json` | Cấu hình tham số của 9 chủ đề |
+| `prototype/themes.json` | Cấu hình tham số của 10 chủ đề |
 | `prototype/i18n/` | Các tệp ngôn ngữ Tiếng Việt (`vi.json`) và Tiếng Anh (`en.json`) |
 | `prototype/share.js` | Công cụ xuất ảnh tĩnh và ảnh động bảo vệ quyền riêng tư |
 | `tools/` | Công cụ đóng gói bộ cài đặt NSIS |
@@ -109,10 +115,11 @@ This repository is a community-modified Vietnamese & English edition of **[Deskl
 ### Summary of Modifications (GPL-3.0 Section 5a Notice)
 
 - **Removed locked/paid preview cards:** Only complete, playable open-source themes are listed.
-- **9 complete WebGL2 themes:** Includes the original **Meadow** (`meadow.html`) and **Beach** (`flat.html`) themes plus 7 new procedural WebGL2 themes: **Maldives** (`maldives.html`), **Lake** (`lake.html`), **Sky** (`sky.html`), **Ocean** (`ocean.html`), **Rainforest** (`rainforest.html`), **Moc Chau Plum Blossoms** (`mocchau.html`), and **Tet Peach Blossoms** (`tet-sakura.html`).
+- **10 complete themes:** Includes the original **Meadow** (`meadow.html`) and **Beach** (`flat.html`) themes plus 8 new procedural themes: **Maldives** (`maldives.html`), **Lake** (`lake.html`), **Sky** (`sky.html`), **Ocean** (`ocean.html`), **Rainforest** (`rainforest.html`), **Moc Chau Plum Blossoms** (`mocchau.html`), **Tet Peach Blossoms** (`tet-sakura.html`), and **Sunny Cat Hill** (`cat-hill.html`).
 - **Multi-monitor support:** Renders across all connected displays (`Screen.AllScreens`).
 - **Performance optimization:** Optimized render scale and frame pacing for low GPU usage.
 - **Vietnamese & English UI:** Replaced Simplified Chinese localization with Vietnamese (`vi`) and English (`en`).
+- **Live Lock Screen & Widget + Windows `Win+L` Interception:** Full-screen live WebGL2 lock screen with a glassmorphic Clock & Date widget that shapes the surrounding terrain, triggered directly via **`Win+L`** (or `Ctrl+Alt+L`, idle timer, or tray menu), optional PIN protection, task-switch key blocking, and automatic background sync (shaped around the Windows 11 clock) for the native Windows lock screen.
 
 ### Build & Run
 

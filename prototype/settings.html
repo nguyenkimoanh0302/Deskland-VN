@@ -156,6 +156,13 @@
   .opts button { flex: 1; min-width: 0; padding: 6px 3px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: inherit; font-size: 11px; cursor: pointer; }
   .opts button:hover { background: var(--accent-soft); }
   .opts button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .lock-pin-inp {
+    width: 112px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 9px;
+    background: var(--panel-2); color: var(--text); font: inherit; font-size: 11.5px;
+    text-align: center; letter-spacing: .12em; outline: none; transition: border-color .15s, background .15s;
+  }
+  .lock-pin-inp::placeholder { letter-spacing: normal; color: var(--faint); font-size: 11px; }
+  .lock-pin-inp:focus { border-color: var(--accent); background: var(--panel); }
   .track { position: relative; }
   input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; margin: 2px 0 0; background: transparent; cursor: pointer; }
   input[type=range]:focus { outline: none; }
@@ -239,6 +246,10 @@
     <div class="section-title" data-i18n="themes">Chủ đề</div>
   </div>
   <div class="top-right">
+    <button class="ghost-btn" id="lockNow" data-i18n-title="lockNowTitle" title="Bật màn hình khóa động Deskland ngay (Ctrl+Alt+L)" style="display:inline-flex;align-items:center;gap:6px;padding:7px 12px;font-weight:600">
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.2" y="7" width="9.6" height="6.8" rx="1.6"/><path d="M5.2 7V5a2.8 2.8 0 0 1 5.6 0v2"/></svg>
+      <span data-i18n="lockNow">Khóa màn hình</span>
+    </button>
     <label class="lang-row">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M1.8 8h12.4M8 1.8c1.8 1.7 2.7 3.8 2.7 6.2S9.8 12.5 8 14.2C6.2 12.5 5.3 10.4 5.3 8S6.2 3.5 8 1.8z"/></svg>
       <select id="lang" data-i18n-title="language" aria-label="Language"></select>
@@ -334,7 +345,8 @@ const send = m => { if (host) host.postMessage(JSON.stringify(m)); };
 
 const state = { registry0: null, registry: null, theme: 'beach', params: {}, screen: null, icons: null,
   langSetting: 'auto', langSys: 'vi', autostartWarn: false, autostartSw: '',
-  updateVersion: '', updateStatus: '', updateProgress: -1, updateError: '' };
+  updateVersion: '', updateStatus: '', updateProgress: -1, updateError: '',
+  lockCfg: { widget: true, idleMins: 5, requireAuth: true, syncWin: true, overrideWinL: true, pin: '' } };
 const $ = id => document.getElementById(id);
 const frame = $('preview');
 
@@ -470,10 +482,60 @@ function setSeed(v, live) {
 $('reseed').addEventListener('click', () => setSeed(newSeed(), true));
 
 /* ---------- Parameter controls ---------- */
+const IDLE_STEPS = [
+  { mins: 0, key: 'lockIdleOff' },
+  { mins: 1, key: 'lockIdle1m' },
+  { mins: 5, key: 'lockIdle5m' },
+  { mins: 10, key: 'lockIdle10m' },
+  { mins: 15, key: 'lockIdle15m' },
+  { mins: 30, key: 'lockIdle30m' }
+];
+function renderLockGroupHtml() {
+  const lc = state.lockCfg || { widget: true, idleMins: 5, requireAuth: true, syncWin: true, overrideWinL: true, pin: '' };
+  const escPin = String(lc.pin || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  return `
+    <div class="group"><h3>${t('lockGroupTitle')}</h3>
+      <div class="param">
+        <div class="row">
+          <span class="label">${t('lockWinLLabel')}<span class="hint">${t('lockWinLHint')}</span></span>
+          <label class="switch-row"><input type="checkbox" data-lock-toggle="overrideWinL" ${lc.overrideWinL !== false ? 'checked' : ''}><i class="switch"></i></label>
+        </div>
+      </div>
+      <div class="param">
+        <div class="row">
+          <span class="label">${t('lockAuthLabel')}<span class="hint">${t('lockAuthHint')}</span></span>
+          <label class="switch-row"><input type="checkbox" data-lock-toggle="requireAuth" ${lc.requireAuth !== false ? 'checked' : ''}><i class="switch"></i></label>
+        </div>
+      </div>
+      <div class="param">
+        <div class="row">
+          <span class="label">${t('lockPinLabel')}<span class="hint">${t('lockPinHint')}</span></span>
+          <input type="password" class="lock-pin-inp" id="lockPinInput" maxlength="24" value="${escPin}" placeholder="${t('lockPinPlaceholder')}" autocomplete="off">
+        </div>
+      </div>
+      <div class="param">
+        <div class="row">
+          <span class="label">${t('lockWidgetLabel')}<span class="hint">${t('lockWidgetHint')}</span></span>
+          <label class="switch-row"><input type="checkbox" data-lock-toggle="widget" ${lc.widget ? 'checked' : ''}><i class="switch"></i></label>
+        </div>
+      </div>
+      <div class="param">
+        <div class="row"><span class="label">${t('lockIdleLabel')}<span class="hint">${t('lockIdleHint')}</span></span></div>
+        <div class="opts" role="radiogroup" aria-label="${t('lockIdleLabel')}">
+          ${IDLE_STEPS.map(s => `<button data-lock-idle="${s.mins}" class="${lc.idleMins === s.mins ? 'on' : ''}" role="radio" aria-checked="${lc.idleMins === s.mins}">${t(s.key)}</button>`).join('')}
+        </div>
+      </div>
+      <div class="param">
+        <div class="row">
+          <span class="label">${t('lockSyncWinLabel')}<span class="hint">${t('lockSyncWinHint')}</span></span>
+          <label class="switch-row"><input type="checkbox" data-lock-toggle="syncWin" ${lc.syncWin ? 'checked' : ''}><i class="switch"></i></label>
+        </div>
+      </div>
+    </div>`;
+}
 function renderControls() {
   const theme = themeById(state.theme), vals = valuesOf(theme);
-  if (!theme.groups) { $('controls').innerHTML = '<div class="empty">' + t('noParams') + '</div>'; return; }
-  $('controls').innerHTML = theme.groups.map(g => `
+  const themeGroupsHtml = (!theme.groups ? '<div class="empty">' + t('noParams') + '</div>' : theme.groups.map(g => `
     <div class="group"><h3>${g.name}</h3>
       ${g.params.map(p => `
         <div class="param${vals[p.key] !== p.default ? ' changed' : ''}" id="p-${p.key}">
@@ -489,7 +551,8 @@ function renderControls() {
           </div>`}
         </div>`).join('')}
       ${g.soon ? `<div class="soon">${t('comingSoon')}${g.soon.map(s => `<span class="chip">${s}</span>`).join('')}</div>` : ''}
-    </div>`).join('');
+    </div>`).join(''));
+  $('controls').innerHTML = themeGroupsHtml + renderLockGroupHtml();
   $('controls').querySelectorAll('input[type=range]').forEach(fill);
 }
 function fill(inp) { inp.style.setProperty('--p', ((inp.value - inp.min) / (inp.max - inp.min) * 100) + '%'); }
@@ -517,11 +580,39 @@ function setParam(key, v) {
   if (!scheduled) { scheduled = true; setTimeout(flush, 30); }
 }
 $('controls').addEventListener('input', e => { if (e.target.dataset.key) setParam(e.target.dataset.key, +e.target.value); });
+$('controls').addEventListener('change', e => {
+  const lt = e.target.dataset.lockToggle;
+  if (lt) {
+    state.lockCfg[lt] = !!e.target.checked;
+    send(Object.assign({ t: 'lockCfg' }, state.lockCfg));
+    flashSaved();
+  } else if (e.target.id === 'lockPinInput') {
+    state.lockCfg.pin = String(e.target.value || '').trim();
+    send(Object.assign({ t: 'lockCfg' }, state.lockCfg));
+    flashSaved();
+  }
+});
 $('controls').addEventListener('click', e => {
   const b = e.target.closest('[data-reset]');
   if (b) setParam(b.dataset.reset, paramOf(b.dataset.reset).default);
   const o = e.target.closest('[data-opt]');
   if (o) setParam(o.closest('.opts').dataset.key, +o.dataset.opt);
+  const li = e.target.closest('[data-lock-idle]');
+  if (li) {
+    const mins = +li.dataset.lockIdle;
+    state.lockCfg.idleMins = mins;
+    document.querySelectorAll('[data-lock-idle]').forEach(btn => {
+      const on = +btn.dataset.lockIdle === mins;
+      btn.classList.toggle('on', on);
+      btn.setAttribute('aria-checked', on);
+    });
+    send(Object.assign({ t: 'lockCfg' }, state.lockCfg));
+    flashSaved();
+  }
+});
+$('lockNow').addEventListener('click', () => {
+  if (host) send({ t: 'lockNow' });
+  else window.open(themeById(state.theme).page + '?wallpaper=1&lockscreen=1&widget=' + (state.lockCfg.widget ? '1' : '0') + '&pin=' + (state.lockCfg.requireAuth !== false ? '1' : '0') + '&primary=1&lang=' + lang, '_blank');
 });
 $('controls').addEventListener('dblclick', e => {
   const inp = e.target.closest('.track') && e.target.closest('.track').querySelector('input');
@@ -718,6 +809,7 @@ function onHost(m) {
       state.theme = themeById(m.theme) && themeById(m.theme).status === 'ready' ? m.theme : 'beach';
       state.params = m.params || {};
       state.screen = m.screen;
+      if (m.lockCfg) state.lockCfg = Object.assign({ widget: true, idleMins: 5, requireAuth: true, syncWin: true, overrideWinL: true, pin: '' }, m.lockCfg);
       $('autostart').checked = !!m.autostart;
       state.autostartWarn = !!m.autostartWarn;
       state.autostartSw = m.autostartSw || '';

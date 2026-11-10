@@ -76,8 +76,9 @@
   function labelsReady() {
     return typeof renderLabels === 'function' && ((typeof city !== 'undefined' && city) || (typeof world !== 'undefined' && world));
   }
-  function drawSampleIcons(ctx, s) { for (const ic of icons) drawIcon(ctx, ic, s, ic.x, ic.y, 0); }
-  function snapshot(scale) {
+  function drawSampleIcons(ctx, s) { for (const ic of icons) if (!ic._lockWidget) drawIcon(ctx, ic, s, ic.x, ic.y, 0); }
+  function snapshot(scale, withIcons) {
+    if (withIcons === undefined) withIcons = true;
     scale = scale || window.devicePixelRatio || 1;
     const old = { w: cv.width, h: cv.height, s: cv._scale };
     const hasLabels = labelsReady();
@@ -95,7 +96,7 @@
     if (hasLabels) renderLabels();
     if (hasCache) cacheOK = false;
     draw(performance.now());
-    drawSampleIcons(ctx, scale);
+    if (withIcons) drawSampleIcons(ctx, scale);
     return out;
   }
   function thumbOf(canvas, maxW) {
@@ -105,7 +106,7 @@
     c.drawImage(canvas, 0, 0, t.width, t.height);
     return t.toDataURL('image/jpeg', 0.86);
   }
-  window.desklandSnapshot = function (scale) { const c = snapshot(scale); return { canvas: c, thumb: thumbOf(c, 520) }; };
+  window.desklandSnapshot = function (scale, withIcons) { const c = snapshot(scale, withIcons); return { canvas: c, thumb: thumbOf(c, 520) }; };
   window.desklandSnapshot.parts = { snapshot, drawSampleIcons, sampleGlyph, sampleLabel, thumbOf };
 
   /* ---- Chia sẻ hoạt ảnh: quay 12 giây hoạt ảnh chủ đề theo bố cục màn hình hiện tại ---- */
@@ -394,11 +395,35 @@
   function settled() {
     return typeof trees === 'undefined' || !trees.length || trees.every(t => t.grow === t.want);
   }
-  function send() {
+  function send(cleanOnly) {
     try {
-      const r = window.desklandSnapshot();
-      host.postMessage('snapshot|' + r.thumb + '|' + r.canvas.toDataURL('image/png'));
-    } catch (e) { host.postMessage('snapshot|error|' + (e && e.message || e)); }
+      let savedIcons = null;
+      if (cleanOnly && typeof icons !== 'undefined' && Array.isArray(icons) && typeof commit === 'function') {
+        savedIcons = icons.slice();
+        const W0 = window.innerWidth || W, H0 = window.innerHeight || H;
+        const x0 = Math.round(W0 * 0.37), x1 = Math.round(W0 * 0.63);
+        const y0 = Math.round(H0 * 0.11), y1 = Math.round(H0 * 0.30);
+        const cw = 76, ch = 92;
+        const cols = Math.max(1, Math.ceil((x1 - x0) / cw));
+        const rows = Math.max(1, Math.ceil((y1 - y0) / ch));
+        const sx = cols > 1 ? (x1 - x0 - cw) / (cols - 1) : 0;
+        const sy = rows > 1 ? (y1 - y0 - ch) / (rows - 1) : 0;
+        for (let r = 0; r < rows; r++)
+          for (let c = 0; c < cols; c++)
+            icons.push({ x: Math.round(x0 + c * sx), y: Math.round(y0 + r * sy), w: cw, h: ch, _lockWidget: true });
+        try { commit(true); } catch (e) {}
+      }
+      const res = window.desklandSnapshot(undefined, !cleanOnly);
+      if (savedIcons) {
+        icons.length = 0;
+        for (const ic of savedIcons) icons.push(ic);
+        try { commit(true); } catch (e) {}
+      }
+      if (cleanOnly) host.postMessage('locksnap|' + res.canvas.toDataURL('image/png'));
+      else host.postMessage('snapshot|' + res.thumb + '|' + res.canvas.toDataURL('image/png'));
+    } catch (e) {
+      host.postMessage((cleanOnly ? 'locksnap|error|' : 'snapshot|error|') + (e && e.message || e));
+    }
   }
   if (host) host.addEventListener('message', ev => {
     let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
@@ -413,18 +438,382 @@
       }, e => host.postMessage('record|error|' + (e && e.message || e)));
       return;
     }
-    if (m.t !== 'snapshot') return;
-    if (busy) { host.postMessage('snapshot|error|Đang quay hoạt ảnh, vui lòng đợi quay xong rồi thử lại'); return; }
-    if (typeof paused === 'undefined' || !paused) { send(); return; }
+    if (m.t !== 'snapshot' && m.t !== 'locksnap') return;
+    const cleanOnly = m.t === 'locksnap';
+    if (busy) { host.postMessage((cleanOnly ? 'locksnap|error|' : 'snapshot|error|') + 'Đang quay hoạt ảnh, vui lòng đợi quay xong rồi thử lại'); return; }
+    if (typeof paused === 'undefined' || !paused) { send(cleanOnly); return; }
     paused = false;
     const t0 = performance.now(), f0 = frameN;
     const wait = () => {
       const dt = performance.now() - t0, ran = frameN - f0;
       if ((ran >= 10 && settled()) || dt > 6000 || (dt > 1000 && ran < 2)) {
-        send();
+        send(cleanOnly);
         paused = hostPause === null ? true : hostPause;
       } else setTimeout(wait, 100);
     };
     setTimeout(wait, 100);
   });
+
+  /* ---- Chế độ Màn hình khóa động (Live Lock Screen & Widget Overlay) ---- */
+  const lockQS = new URLSearchParams(location.search);
+  if (lockQS.has('lockscreen')) {
+    const isPrimaryLock = lockQS.get('primary') !== '0';
+    const showWidget = lockQS.get('widget') !== '0' && isPrimaryLock;
+    const requirePin = lockQS.get('pin') !== '0' && isPrimaryLock;
+    const winUser = (lockQS.get('user') || 'WINDOWS').trim();
+    let lockLang = (lockQS.get('lang') || 'vi').toLowerCase().startsWith('en') ? 'en' : 'vi';
+    let themeLabel = (lockQS.get('themeName') || document.title.replace(/^Deskland\s*[·\-]\s*/i, '') || 'Deskland').trim();
+
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes dlLockFadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+      @keyframes dlLockPulse { 0%, 100% { opacity: 0.92; } 50% { opacity: 0.58; } }
+      @keyframes dlLockShake {
+        0%, 100% { transform: translateX(0); }
+        20%, 60% { transform: translateX(-8px); }
+        40%, 80% { transform: translateX(8px); }
+      }
+      #dl-lock-overlay {
+        position: fixed; inset: 0; z-index: 9999; pointer-events: auto; cursor: ${requirePin ? 'default' : 'none'};
+        display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+        padding: 7.5vh 24px 34px; user-select: none;
+        font-family: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+        transition: opacity 0.22s ease;
+      }
+      #dl-lock-overlay.dl-unlocking { opacity: 0; }
+      .dl-lock-center {
+        display: flex; flex-direction: column; align-items: center; gap: 22px; width: 100%;
+      }
+      .dl-lock-card {
+        display: flex; flex-direction: column; align-items: center; text-align: center;
+        padding: 22px 44px 22px; border-radius: 30px;
+        background: rgba(16, 24, 34, 0.26);
+        backdrop-filter: blur(18px) saturate(145%);
+        -webkit-backdrop-filter: blur(18px) saturate(145%);
+        border: 1px solid rgba(255, 255, 255, 0.30);
+        box-shadow: 0 22px 54px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.38);
+        color: #ffffff;
+        animation: dlLockFadeIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      .dl-lock-badge {
+        display: inline-flex; align-items: center; gap: 7px;
+        padding: 5px 14px; border-radius: 999px;
+        background: rgba(255, 255, 255, 0.16);
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        font-size: 12.5px; font-weight: 600; letter-spacing: 0.01em;
+        color: rgba(255, 255, 255, 0.96);
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+      }
+      .dl-lock-badge svg { width: 14px; height: 14px; flex: none; }
+      .dl-lock-time {
+        margin-top: 8px;
+        font-size: clamp(64px, 7.6vw, 98px);
+        font-weight: 700; line-height: 1.02; letter-spacing: -0.04em;
+        font-variant-numeric: tabular-nums;
+        text-shadow: 0 6px 28px rgba(0, 0, 0, 0.30);
+      }
+      .dl-lock-date {
+        margin-top: 8px;
+        font-size: clamp(14px, 1.55vw, 19px);
+        font-weight: 500; letter-spacing: 0.01em;
+        color: rgba(255, 255, 255, 0.94);
+        text-shadow: 0 2px 12px rgba(0, 0, 0, 0.28);
+      }
+      /* Khu vực đăng nhập User Windows ngay trên nền động */
+      .dl-signin-card {
+        display: flex; flex-direction: column; align-items: center; text-align: center;
+        padding: 22px 34px 18px; border-radius: 28px;
+        background: rgba(16, 24, 34, 0.30);
+        backdrop-filter: blur(20px) saturate(150%);
+        -webkit-backdrop-filter: blur(20px) saturate(150%);
+        border: 1px solid rgba(255, 255, 255, 0.32);
+        box-shadow: 0 22px 54px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.38);
+        color: #ffffff;
+        animation: dlLockFadeIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      .dl-user-avatar {
+        width: 72px; height: 72px; border-radius: 50%;
+        display: grid; place-items: center;
+        background: linear-gradient(145deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.10));
+        border: 1.5px solid rgba(255, 255, 255, 0.48);
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+      }
+      .dl-user-avatar svg { width: 38px; height: 38px; color: rgba(255, 255, 255, 0.95); }
+      .dl-user-name {
+        margin-top: 10px;
+        font-size: 20px; font-weight: 650; letter-spacing: -0.01em;
+        color: #ffffff; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+      }
+      .dl-pin-form {
+        margin-top: 14px; display: flex; align-items: center;
+        width: 276px; height: 40px; border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.38);
+        border-bottom: 2px solid rgba(255, 255, 255, 0.72);
+        background: rgba(12, 18, 26, 0.46);
+        overflow: hidden; transition: border-color 0.15s, background 0.15s;
+      }
+      .dl-pin-form:focus-within {
+        background: rgba(12, 18, 26, 0.62);
+        border-color: rgba(255, 255, 255, 0.65);
+        border-bottom-color: #60cdff;
+      }
+      .dl-pin-form.dl-shake { animation: dlLockShake 0.36s ease; }
+      .dl-pin-input {
+        flex: 1; min-width: 0; height: 100%; padding: 0 12px; border: 0;
+        background: transparent; color: #fff;
+        font: 500 14px/1.2 "Segoe UI Variable Text", "Segoe UI", sans-serif;
+        outline: none;
+      }
+      .dl-pin-input::placeholder { color: rgba(255, 255, 255, 0.68); font-weight: 400; font-size: 13px; }
+      .dl-pin-icon-btn {
+        width: 34px; height: 100%; border: 0; background: transparent;
+        color: rgba(255, 255, 255, 0.85); display: grid; place-items: center;
+        cursor: pointer; transition: background 0.15s, color 0.15s;
+      }
+      .dl-pin-icon-btn:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
+      .dl-pin-icon-btn svg { width: 16px; height: 16px; }
+      .dl-pin-err {
+        margin-top: 8px; min-height: 17px; max-width: 280px; font-size: 12px; font-weight: 500;
+        color: #ffd2d2; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+      }
+      .dl-lock-hint {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 9px 20px; border-radius: 999px;
+        background: rgba(16, 24, 34, 0.32);
+        backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        color: rgba(255, 255, 255, 0.92);
+        font-size: 13px; font-weight: 500;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.20);
+        animation: dlLockPulse 3.6s ease-in-out infinite;
+      }
+      .dl-lock-hint svg { width: 14px; height: 14px; flex: none; opacity: 0.9; }
+    `;
+    document.head.appendChild(style);
+
+    const overlay = document.createElement('div');
+    overlay.id = 'dl-lock-overlay';
+    const centerWrap = document.createElement('div');
+    centerWrap.className = 'dl-lock-center';
+    overlay.appendChild(centerWrap);
+
+    let cardEl = null, signInEl = null, badgeEl = null, timeEl = null, dateEl = null, hintTextEl = null;
+    let pinFormEl = null, pinInputEl = null, pinEyeEl = null, pinErrEl = null;
+
+    if (showWidget) {
+      cardEl = document.createElement('div');
+      cardEl.className = 'dl-lock-card';
+      cardEl.innerHTML = `
+        <div class="dl-lock-badge" id="dl-lock-badge"></div>
+        <div class="dl-lock-time" id="dl-lock-time">00:00</div>
+        <div class="dl-lock-date" id="dl-lock-date"></div>
+      `;
+      centerWrap.appendChild(cardEl);
+      badgeEl = cardEl.querySelector('#dl-lock-badge');
+      timeEl = cardEl.querySelector('#dl-lock-time');
+      dateEl = cardEl.querySelector('#dl-lock-date');
+    }
+
+    if (requirePin) {
+      const escUser = winUser.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      signInEl = document.createElement('div');
+      signInEl.className = 'dl-signin-card';
+      signInEl.innerHTML = `
+        <div class="dl-user-avatar" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="8" r="4.2"/>
+            <path d="M4.5 20.2c1.6-3.8 4.4-5.7 7.5-5.7s5.9 1.9 7.5 5.7"/>
+          </svg>
+        </div>
+        <div class="dl-user-name">${escUser}</div>
+        <form class="dl-pin-form" id="dl-pin-form" autocomplete="off">
+          <input type="password" class="dl-pin-input" id="dl-pin-input" placeholder="${lockLang === 'en' ? 'Password or PIN' : 'Mật khẩu hoặc mã PIN'}" maxlength="64">
+          <button type="button" class="dl-pin-icon-btn" id="dl-pin-eye" title="${lockLang === 'en' ? 'Show password' : 'Hiện mật khẩu'}" tabindex="-1">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.2 8s2.5-4.4 6.8-4.4S14.8 8 14.8 8s-2.5 4.4-6.8 4.4S1.2 8 1.2 8z"/><circle cx="8" cy="8" r="2.1"/></svg>
+          </button>
+          <button type="submit" class="dl-pin-icon-btn" id="dl-pin-btn" title="${lockLang === 'en' ? 'Sign in' : 'Đăng nhập'}">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
+          </button>
+        </form>
+        <div class="dl-pin-err" id="dl-pin-err"></div>
+      `;
+      centerWrap.appendChild(signInEl);
+      pinFormEl = signInEl.querySelector('#dl-pin-form');
+      pinInputEl = signInEl.querySelector('#dl-pin-input');
+      pinEyeEl = signInEl.querySelector('#dl-pin-eye');
+      pinErrEl = signInEl.querySelector('#dl-pin-err');
+    }
+
+    if (isPrimaryLock) {
+      const hintEl = document.createElement('div');
+      hintEl.className = 'dl-lock-hint';
+      hintEl.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3.2" y="7" width="9.6" height="6.8" rx="1.6"/><path d="M5.2 7V5a2.8 2.8 0 0 1 5.6 0v2"/></svg><span id="dl-lock-hint-text"></span>`;
+      overlay.appendChild(hintEl);
+      hintTextEl = hintEl.querySelector('#dl-lock-hint-text');
+    } else {
+      overlay.appendChild(document.createElement('div'));
+    }
+    document.body.appendChild(overlay);
+
+    function greetingForHour(h) {
+      if (lockLang === 'en') {
+        if (h >= 5 && h < 12) return 'Good morning';
+        if (h >= 12 && h < 18) return 'Good afternoon';
+        if (h >= 18 && h < 22) return 'Good evening';
+        return 'Peaceful night';
+      }
+      if (h >= 5 && h < 11) return 'Chào buổi sáng';
+      if (h >= 11 && h < 13) return 'Chào buổi trưa';
+      if (h >= 13 && h < 18) return 'Chào buổi chiều';
+      if (h >= 18 && h < 22) return 'Chào buổi tối';
+      return 'Đêm an lành';
+    }
+
+    function updateClock() {
+      if (hintTextEl) {
+        if (requirePin) {
+          hintTextEl.textContent = lockLang === 'en'
+            ? 'Enter your Windows password or Deskland PIN to sign in'
+            : 'Nhập mật khẩu Windows hoặc mã PIN Deskland để mở khóa';
+        } else {
+          hintTextEl.textContent = lockLang === 'en'
+            ? 'Move mouse or press any key to unlock'
+            : 'Di chuột hoặc nhấn phím bất kỳ để mở khóa';
+        }
+      }
+      if (!showWidget || !timeEl) return;
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      timeEl.textContent = hh + ':' + mm;
+      const isNight = now.getHours() < 6 || now.getHours() >= 18;
+      const iconSvg = isNight
+        ? '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.2 9.8A5.5 5.5 0 0 1 6.2 2.8a5.5 5.5 0 1 0 7 7z"/></svg>'
+        : '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="3"/><path d="M8 1.8v1.5M8 12.7v1.5M1.8 8h1.5M12.7 8h1.5M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1"/></svg>';
+      badgeEl.innerHTML = iconSvg + '<span>' + greetingForHour(now.getHours()) + (themeLabel ? ' · ' + themeLabel : '') + '</span>';
+      try {
+        const locale = lockLang === 'en' ? 'en-US' : 'vi-VN';
+        let ds = new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(now);
+        if (ds && ds.length > 1) ds = ds.charAt(0).toUpperCase() + ds.slice(1);
+        dateEl.textContent = ds;
+      } catch (e) {
+        dateEl.textContent = now.toLocaleDateString();
+      }
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    // Đưa khung chữ nhật của Widget Đồng hồ và Khu vực nhập mật khẩu vào trường khoảng cách (icons) để cảnh vật uốn lượn bao quanh
+    function addRectToIslands(el) {
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 20 || rect.height <= 20) return;
+      const padX = 14, padY = 10;
+      const x0 = Math.max(8, rect.left - padX), y0 = Math.max(8, rect.top - padY);
+      const x1 = Math.min(window.innerWidth - 8, rect.right + padX), y1 = Math.min(window.innerHeight - 8, rect.bottom + padY);
+      const cw = 76, ch = 92;
+      const cols = Math.max(1, Math.ceil((x1 - x0) / cw));
+      const rows = Math.max(1, Math.ceil((y1 - y0) / ch));
+      const stepX = cols > 1 ? (x1 - x0 - cw) / (cols - 1) : 0;
+      const stepY = rows > 1 ? (y1 - y0 - ch) / (rows - 1) : 0;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          icons.push({ x: Math.round(x0 + c * stepX), y: Math.round(y0 + r * stepY), w: cw, h: ch, _lockWidget: true });
+        }
+      }
+    }
+
+    function syncLockWidgetIslands() {
+      if (typeof icons === 'undefined' || !Array.isArray(icons)) return;
+      for (let i = icons.length - 1; i >= 0; i--) {
+        if (icons[i] && icons[i]._lockWidget) icons.splice(i, 1);
+      }
+      const hasUserIcons = icons.length > 0;
+      if (showWidget && cardEl) addRectToIslands(cardEl);
+      if (requirePin && signInEl) addRectToIslands(signInEl);
+      if (!hasUserIcons) {
+        const W0 = window.innerWidth, H0 = window.innerHeight;
+        const scenic = [
+          [0.12, 0.58], [0.16, 0.64], [0.82, 0.56], [0.86, 0.63], [0.20, 0.24], [0.78, 0.26]
+        ];
+        for (const [fx, fy] of scenic) {
+          icons.push({ x: Math.round(W0 * fx - 38), y: Math.round(H0 * fy - 46), w: 76, h: 92, _lockWidget: true });
+        }
+      }
+    }
+
+    if (typeof commit === 'function') {
+      const origCommit = commit;
+      commit = function (fromEmpty) {
+        syncLockWidgetIslands();
+        return origCommit(fromEmpty);
+      };
+      setTimeout(() => { try { commit(true); } catch (e) {} }, 60);
+    }
+
+    if (requirePin && pinFormEl && pinInputEl) {
+      setTimeout(() => { try { pinInputEl.focus(); } catch (e) {} }, 220);
+      if (pinEyeEl) {
+        pinEyeEl.addEventListener('click', e => {
+          e.preventDefault();
+          pinInputEl.type = pinInputEl.type === 'password' ? 'text' : 'password';
+          pinInputEl.focus();
+        });
+      }
+      window.addEventListener('mousedown', e => {
+        if (e.target !== pinInputEl && !e.target.closest('.dl-pin-icon-btn')) {
+          setTimeout(() => { try { pinInputEl.focus(); } catch (err) {} }, 10);
+        }
+      });
+      window.addEventListener('keydown', () => {
+        if (document.activeElement !== pinInputEl) {
+          try { pinInputEl.focus(); } catch (err) {}
+        }
+      });
+      pinFormEl.addEventListener('submit', e => {
+        e.preventDefault();
+        const val = pinInputEl.value || '';
+        if (host) host.postMessage('unlockPin|' + val);
+      });
+      if (host) {
+        host.addEventListener('message', ev => {
+          let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+          if (m && m.t === 'pinError') {
+            pinFormEl.classList.remove('dl-shake');
+            void pinFormEl.offsetWidth;
+            pinFormEl.classList.add('dl-shake');
+            pinInputEl.value = '';
+            pinInputEl.focus();
+            if (pinErrEl) {
+              pinErrEl.textContent = lockLang === 'en'
+                ? 'Incorrect password or PIN. Please try again.'
+                : 'Mật khẩu hoặc mã PIN không đúng, vui lòng thử lại.';
+            }
+          }
+        });
+      }
+    } else {
+      // Bắt tương tác người dùng để mở khóa (sau khoảng trễ 650ms tránh nhận nhầm phím/chuột lúc vừa kích hoạt)
+      const lockOpenedAt = performance.now();
+      let unlocked = false;
+      let baseMouse = null;
+      function triggerUnlock() {
+        if (unlocked || performance.now() - lockOpenedAt < 650) return;
+        unlocked = true;
+        overlay.classList.add('dl-unlocking');
+        if (host) {
+          setTimeout(() => { try { host.postMessage('unlock'); } catch (e) {} }, 120);
+        }
+      }
+      window.addEventListener('keydown', triggerUnlock, true);
+      window.addEventListener('mousedown', triggerUnlock, true);
+      window.addEventListener('wheel', triggerUnlock, { capture: true, passive: true });
+      window.addEventListener('touchstart', triggerUnlock, { capture: true, passive: true });
+      window.addEventListener('mousemove', e => {
+        if (performance.now() - lockOpenedAt < 650) return;
+        if (!baseMouse) { baseMouse = [e.screenX, e.screenY]; return; }
+        if (Math.hypot(e.screenX - baseMouse[0], e.screenY - baseMouse[1]) > 48) triggerUnlock();
+      }, true);
+    }
+  }
 })();

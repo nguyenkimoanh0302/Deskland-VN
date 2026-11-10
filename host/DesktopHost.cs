@@ -203,6 +203,12 @@ static class Settings
     static readonly string FilePath = Path.Combine(Log.DataDir, "settings.json");
     public static string Theme = "beach";
     public static string Lang = "auto";
+    public static bool LockWidget = true;
+    public static int LockIdleMins = 5;
+    public static bool LockRequireAuth = true;
+    public static bool LockSyncWin = true;
+    public static bool LockOverrideWinL = true;
+    public static string LockPin = "";
     public static Dictionary<string, Dictionary<string, object>> Params = new Dictionary<string, Dictionary<string, object>>();
 
     public static void Load()
@@ -215,6 +221,12 @@ static class Settings
             object v;
             if (root.TryGetValue("theme", out v) && v is string) Theme = (string)v;
             if (root.TryGetValue("lang", out v) && v is string) Lang = (string)v;
+            if (root.TryGetValue("lockWidget", out v) && v is bool) LockWidget = (bool)v;
+            if (root.TryGetValue("lockIdleMins", out v) && v is int) LockIdleMins = (int)v;
+            if (root.TryGetValue("lockRequirePass", out v) && v is bool) LockRequireAuth = (bool)v;
+            if (root.TryGetValue("lockSyncWin", out v) && v is bool) LockSyncWin = (bool)v;
+            if (root.TryGetValue("lockOverrideWinL", out v) && v is bool) LockOverrideWinL = (bool)v;
+            if (root.TryGetValue("lockPin", out v) && v is string) LockPin = (string)v;
             if (root.TryGetValue("params", out v) && v is Dictionary<string, object>)
                 foreach (var kv in (Dictionary<string, object>)v)
                 {
@@ -231,7 +243,12 @@ static class Settings
         try
         {
             Directory.CreateDirectory(Log.DataDir);
-            File.WriteAllText(FilePath, Json.Stringify(Json.Obj("version", 1, "theme", Theme, "lang", Lang, "params", Params)), new UTF8Encoding(false));
+            File.WriteAllText(FilePath, Json.Stringify(Json.Obj(
+                "version", 1, "theme", Theme, "lang", Lang,
+                "lockWidget", LockWidget, "lockIdleMins", LockIdleMins,
+                "lockRequirePass", LockRequireAuth, "lockSyncWin", LockSyncWin,
+                "lockOverrideWinL", LockOverrideWinL, "lockPin", LockPin ?? "",
+                "params", Params)), new UTF8Encoding(false));
         }
         catch (Exception ex) { Log.Write("Lưu cài đặt thất bại: " + ex.Message); }
     }
@@ -300,16 +317,19 @@ class HostContext : ApplicationContext
 
     readonly string pageDir;
     readonly NotifyIcon tray;
-    readonly MenuItem pauseItem, autoStartItem, settingsItem, reloadItem, exitItem;
+    readonly MenuItem pauseItem, autoStartItem, settingsItem, lockItem, reloadItem, exitItem;
     readonly System.Windows.Forms.Timer watch;
     readonly EventWaitHandle exitEvent, menuEvent, settingsEvent;
     readonly HotkeyWindow hotkey = new HotkeyWindow();
+    readonly WinLKeyboardHook winLHook = new WinLKeyboardHook();
     readonly Queue<DateTime> restarts = new Queue<DateTime>();
     readonly List<WallpaperForm> forms = new List<WallpaperForm>();
     readonly List<WallpaperForm> deadForms = new List<WallpaperForm>();
+    readonly List<LockScreenForm> lockForms = new List<LockScreenForm>();
     SettingsForm settingsWin;
-    DateTime nextStart = DateTime.MaxValue, saveDue = DateTime.MaxValue;
-    bool manualPause, exiting;
+    DateTime nextStart = DateTime.MaxValue, saveDue = DateTime.MaxValue, winLockSyncDue = DateTime.MaxValue;
+    DateTime lastUnlockAt = DateTime.MinValue;
+    bool manualPause, exiting, syncingWinLock, pendingWinLLock;
 
     WallpaperForm PrimaryForm
     {
@@ -335,16 +355,27 @@ class HostContext : ApplicationContext
         menuEvent = new EventWaitHandle(false, EventResetMode.AutoReset, Program.MenuEventName);
         settingsEvent = new EventWaitHandle(false, EventResetMode.AutoReset, Program.SettingsEventName);
 
-        // Phím tắt Ctrl+Alt+H: bật menu tại vị trí chuột
-        bool hotkeyOk = hotkey.Register(Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, Keys.H);
-        hotkey.Pressed += delegate { ShowMenu(); };
+        // Phím tắt Ctrl+Alt+H: bật menu tại vị trí chuột; Ctrl+Alt+L & Win+L: bật màn hình khóa Deskland
+        bool hotkeyOk = hotkey.Register(1, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, Keys.H);
+        bool lockKeyOk = hotkey.Register(2, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, Keys.L);
+        hotkey.HotkeyPressed += delegate(int id)
+        {
+            if (id == 1) ShowMenu();
+            else if (id == 2) ShowLockScreen();
+        };
+        winLHook.IsLocked = delegate { return lockForms.Count > 0; };
+        winLHook.WinLPressed += delegate { pendingWinLLock = true; };
+        winLHook.ApplyWinLPolicy(Settings.LockOverrideWinL);
+        winLHook.Start();
+        AppDomain.CurrentDomain.ProcessExit += delegate { try { winLHook.Dispose(); } catch { } };
         Log.Write(hotkeyOk ? "Đã đăng ký phím tắt Ctrl+Alt+H" : "Đăng ký phím tắt Ctrl+Alt+H thất bại (có thể đã bị ứng dụng khác chiếm)");
+        Log.Write(lockKeyOk ? "Đã đăng ký phím tắt khóa màn hình Ctrl+Alt+L" : "Đăng ký phím tắt Ctrl+Alt+L thất bại");
 
         pauseItem = new MenuItem(I18n.T("trayPause"), delegate
         {
             manualPause = !manualPause;
             pauseItem.Checked = manualPause;
-            for (int i = 0; i < forms.Count; i++) forms[i].SetManualPause(manualPause);
+            for (int i = 0; i < forms.Count; i++) forms[i].SetManualPause(manualPause || lockForms.Count > 0);
         });
         autoStartItem = new MenuItem(I18n.T("trayAutostart"), delegate { SetAutoStart(!autoStartItem.Checked); });
         autoStartItem.Checked = IsAutoStart();
@@ -365,12 +396,14 @@ class HostContext : ApplicationContext
         }
         settingsItem = new MenuItem(I18n.T("traySettings"), delegate { OpenSettings(); });
         settingsItem.DefaultItem = true;
+        lockItem = new MenuItem(I18n.T("trayLock"), delegate { ShowLockScreen(); });
 
         tray = new NotifyIcon();
         tray.Icon = AppIcon.Create();
         tray.Text = "Deskland Preview";
         tray.ContextMenu = new ContextMenu(new[] {
             settingsItem,
+            lockItem,
             pauseItem,
             reloadItem = new MenuItem(I18n.T("trayReload"), delegate { for (int i = 0; i < forms.Count; i++) forms[i].Reload(); }),
             autoStartItem,
@@ -394,6 +427,7 @@ class HostContext : ApplicationContext
     void ApplyTrayTexts()
     {
         settingsItem.Text = I18n.T("traySettings");
+        lockItem.Text = I18n.T("trayLock");
         pauseItem.Text = I18n.T("trayPause");
         reloadItem.Text = I18n.T("trayReload");
         autoStartItem.Text = I18n.T("trayAutostart");
@@ -467,7 +501,14 @@ class HostContext : ApplicationContext
                 settingsWin.Post(Json.Stringify(Json.Obj("t", "init", "theme", Settings.Theme, "params", Settings.Params,
                     "screen", Json.Obj("w", scr.Width, "h", scr.Height), "autostart", IsAutoStart(),
                     "autostartWarn", autoStartSw != null, "autostartSw", autoStartSw ?? "",
-                    "lang", Settings.Lang, "langEff", I18n.Code, "langSys", I18n.Sys)));
+                    "lang", Settings.Lang, "langEff", I18n.Code, "langSys", I18n.Sys,
+                    "lockCfg", Json.Obj(
+                        "widget", Settings.LockWidget,
+                        "idleMins", Settings.LockIdleMins,
+                        "requireAuth", Settings.LockRequireAuth,
+                        "syncWin", Settings.LockSyncWin,
+                        "overrideWinL", Settings.LockOverrideWinL,
+                        "pin", Settings.LockPin ?? ""))));
                 if (updateVersion != null) PostUpdateState();
                 WallpaperForm pf = PrimaryForm;
                 if (pf != null && pf.LastIcons != "") settingsWin.Post(pf.LastIcons);
@@ -482,6 +523,7 @@ class HostContext : ApplicationContext
                 {
                     string msg = Json.Stringify(Json.Obj("t", "settings", "v", Json.Obj(key, m["value"])));
                     for (int i = 0; i < forms.Count; i++) forms[i].Post(msg);
+                    if (Settings.LockSyncWin) ScheduleWinLockSync(2200);
                 }
                 SaveSoon();
                 break;
@@ -492,7 +534,10 @@ class HostContext : ApplicationContext
                 if (theme == null) return;
                 Settings.Params.Remove(theme);
                 if (theme == Settings.Theme)
+                {
                     for (int i = 0; i < forms.Count; i++) forms[i].Post("{\"t\":\"reset\"}");
+                    if (Settings.LockSyncWin) ScheduleWinLockSync(2200);
+                }
                 SaveSoon();
                 Log.Write("Khôi phục cài đặt mặc định: " + theme);
                 break;
@@ -511,9 +556,37 @@ class HostContext : ApplicationContext
                 Settings.Theme = id;
                 SaveSoon();
                 for (int i = 0; i < forms.Count; i++) forms[i].LoadPage(page);
+                if (Settings.LockSyncWin) ScheduleWinLockSync(2500);
                 Log.Write("Chuyển chủ đề: " + id);
                 break;
             }
+            case "lockNow":
+                ShowLockScreen();
+                break;
+            case "lockCfg":
+            {
+                object v;
+                if (m.TryGetValue("widget", out v) && v is bool) Settings.LockWidget = (bool)v;
+                if (m.TryGetValue("idleMins", out v) && v is int) Settings.LockIdleMins = Math.Max(0, (int)v);
+                if (m.TryGetValue("requireAuth", out v) && v is bool) Settings.LockRequireAuth = (bool)v;
+                if (m.TryGetValue("overrideWinL", out v) && v is bool)
+                {
+                    Settings.LockOverrideWinL = (bool)v;
+                    winLHook.ApplyWinLPolicy(Settings.LockOverrideWinL);
+                }
+                if (m.TryGetValue("pin", out v) && v is string) Settings.LockPin = ((string)v).Trim();
+                if (m.TryGetValue("syncWin", out v) && v is bool)
+                {
+                    bool prev = Settings.LockSyncWin;
+                    Settings.LockSyncWin = (bool)v;
+                    if (Settings.LockSyncWin && !prev) ScheduleWinLockSync(800);
+                }
+                SaveSoon();
+                break;
+            }
+            case "syncWinLock":
+                ScheduleWinLockSync(100);
+                break;
             case "autostartWarnSeen":
                 autoStartSw = null;
                 break;
@@ -789,6 +862,7 @@ class HostContext : ApplicationContext
                 primaryHooked = true;
                 f.IconsChanged += delegate(string json) { if (settingsWin != null) settingsWin.Post(json); };
                 f.RecordProgress += delegate(string p) { if (settingsWin != null) settingsWin.Post("{\"t\":\"recProgress\",\"p\":" + p + "}"); };
+                f.SceneReady += delegate { if (Settings.LockSyncWin) ScheduleWinLockSync(1800); };
             }
             f.HandleDestroyed += OnFormGone;
             forms.Add(f);
@@ -840,6 +914,121 @@ class HostContext : ApplicationContext
         nextStart = DateTime.Now.AddSeconds(1);
     }
 
+    // ---------------------------------------------------------------- Màn hình khóa động & Đồng bộ màn hình khóa Windows
+    public void ShowLockScreen()
+    {
+        if (exiting || lockForms.Count > 0) return;
+        string page = ThemeAllowed(Settings.Theme) ? Themes.PageFor(pageDir, Settings.Theme) : null;
+        if (page == null) return;
+
+        Log.Write("Bật màn hình khóa động Deskland (chủ đề: " + Settings.Theme + ")");
+        for (int i = 0; i < forms.Count; i++) forms[i].SetManualPause(true);
+
+        WallpaperForm pf = PrimaryForm;
+        string iconsJson = pf != null ? pf.LastIcons : "";
+        string settingsJson = SettingsMessage();
+
+        Screen[] screens = Screen.AllScreens;
+        if (screens == null || screens.Length == 0) screens = new[] { Screen.PrimaryScreen };
+        bool primarySet = false;
+        LockScreenForm primaryLock = null;
+        for (int i = 0; i < screens.Length; i++)
+        {
+            Screen scr = screens[i];
+            bool isPrimary = scr.Primary || (!primarySet && i == screens.Length - 1);
+            if (isPrimary) primarySet = true;
+            var lf = new LockScreenForm(pageDir, page, scr.Bounds, isPrimary, Settings.LockWidget, Settings.LockRequireAuth, Settings.LockPin, settingsJson, iconsJson, delegate
+            {
+                CloseLockScreen(true);
+            });
+            lockForms.Add(lf);
+            lf.Show();
+            if (isPrimary) primaryLock = lf;
+        }
+        if (primaryLock != null)
+        {
+            try { primaryLock.Activate(); } catch { }
+        }
+    }
+
+    public void CloseLockScreen(bool userTriggered)
+    {
+        if (lockForms.Count == 0) return;
+        LockScreenForm[] current = lockForms.ToArray();
+        lockForms.Clear();
+        lastUnlockAt = DateTime.Now;
+        for (int i = 0; i < current.Length; i++)
+        {
+            try { current[i].Shutdown(); } catch { }
+        }
+        for (int i = 0; i < forms.Count; i++) forms[i].SetManualPause(manualPause);
+        Log.Write("Đã mở khóa và đóng màn hình khóa động Deskland");
+    }
+
+    void ScheduleWinLockSync(int delayMs)
+    {
+        if (!Settings.LockSyncWin) return;
+        winLockSyncDue = DateTime.Now.AddMilliseconds(delayMs);
+    }
+
+    void SyncWindowsLockScreen()
+    {
+        if (syncingWinLock || !Settings.LockSyncWin || exiting) return;
+        WallpaperForm pf = PrimaryForm;
+        if (pf == null) return;
+        syncingWinLock = true;
+        pf.RequestLockSnapshot(delegate(string png, string err)
+        {
+            if (err != null || string.IsNullOrEmpty(png))
+            {
+                syncingWinLock = false;
+                Log.Write("Chụp ảnh đồng bộ màn hình khóa Windows thất bại: " + (err ?? "không có dữ liệu"));
+                return;
+            }
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                try
+                {
+                    int comma = png.IndexOf(',');
+                    byte[] bytes = Convert.FromBase64String(comma >= 0 ? png.Substring(comma + 1) : png);
+                    Directory.CreateDirectory(Log.DataDir);
+                    string imgPath = Path.Combine(Log.DataDir, "lockscreen.png");
+                    File.WriteAllBytes(imgPath, bytes);
+
+                    string psScript =
+                        "Add-Type -AssemblyName System.Runtime.WindowsRuntime; " +
+                        "$asTaskGen = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]; " +
+                        "$asTaskAct = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncAction' })[0]; " +
+                        "[Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime] | Out-Null; " +
+                        "[Windows.System.UserProfile.LockScreen,Windows.System.UserProfile,ContentType=WindowsRuntime] | Out-Null; " +
+                        "$fTask = $asTaskGen.MakeGenericMethod([Windows.Storage.StorageFile]).Invoke($null, @([Windows.Storage.StorageFile]::GetFileFromPathAsync('" + imgPath.Replace("'", "''") + "'))); " +
+                        "$file = $fTask.GetAwaiter().GetResult(); " +
+                        "$sTask = $asTaskAct.Invoke($null, @([Windows.System.UserProfile.LockScreen]::SetImageFileAsync($file))); " +
+                        "$sTask.GetAwaiter().GetResult();";
+
+                    var psi = new ProcessStartInfo("powershell.exe", "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"" + psScript.Replace("\"", "\\\"") + "\"")
+                    {
+                        CreateNoWindow = true,
+                        UseShellExecute = false
+                    };
+                    using (Process p = Process.Start(psi))
+                    {
+                        if (p != null) p.WaitForExit(12000);
+                    }
+                    Log.Write("Đã đồng bộ ảnh cảnh hiện tại với màn hình khóa Windows (Win+L): " + imgPath);
+                }
+                catch (Exception ex)
+                {
+                    Log.Write("Đồng bộ màn hình khóa Windows thất bại: " + ex.Message);
+                }
+                finally
+                {
+                    syncingWinLock = false;
+                }
+            });
+        });
+    }
+
     void Watch()
     {
         if (deadForms.Count > 0)
@@ -851,8 +1040,22 @@ class HostContext : ApplicationContext
         if (exitEvent.WaitOne(0)) { Exit(); return; }
         if (menuEvent.WaitOne(0)) ShowMenu();
         if (settingsEvent.WaitOne(0)) OpenSettings();
+        if (pendingWinLLock) { pendingWinLLock = false; ShowLockScreen(); }
         if (DateTime.Now >= saveDue) { saveDue = DateTime.MaxValue; Settings.Save(); }
+        if (DateTime.Now >= winLockSyncDue) { winLockSyncDue = DateTime.MaxValue; SyncWindowsLockScreen(); }
         if (forms.Count == 0 && !exiting && DateTime.Now >= nextStart) StartForm();
+
+        if (!exiting && lockForms.Count == 0 && Settings.LockIdleMins > 0)
+        {
+            uint idleMs = Native.GetIdleMilliseconds();
+            uint targetMs = (uint)(Settings.LockIdleMins * 60000);
+            if (idleMs >= targetMs && (DateTime.Now - lastUnlockAt).TotalSeconds >= 10)
+            {
+                WallpaperForm pf = PrimaryForm;
+                bool fullscreenBusy = pf != null && pf.IsCoveredByFullscreen && (settingsWin == null || !settingsWin.Visible);
+                if (!fullscreenBusy) ShowLockScreen();
+            }
+        }
     }
 
     void Exit()
@@ -861,9 +1064,11 @@ class HostContext : ApplicationContext
         exiting = true;
         SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
         watch.Stop();
+        CloseLockScreen(false);
         if (saveDue != DateTime.MaxValue) Settings.Save();
         if (settingsWin != null) { try { settingsWin.Close(); } catch { } }
         hotkey.Dispose();
+        winLHook.Dispose();
         tray.Visible = false;
         ShutdownForms();
         Log.Write("Thoát ứng dụng");
@@ -871,11 +1076,107 @@ class HostContext : ApplicationContext
     }
 }
 
+// Bộ bắt phím mức thấp (WH_KEYBOARD_LL) để chuyển hướng phím Win+L sang Màn hình khóa động Deskland
+// và khóa các phím chuyển cửa sổ hệ thống khi màn hình khóa đang bật.
+class WinLKeyboardHook : IDisposable
+{
+    const string PolicyKey = @"Software\Microsoft\Windows\CurrentVersion\Policies\System";
+    const string PolicyValue = "DisableLockWorkstation";
+
+    IntPtr hookId = IntPtr.Zero;
+    Native.LowLevelKeyboardProc proc;
+    bool winDown;
+    public Func<bool> IsLocked;
+    public event Action WinLPressed;
+
+    public void Start()
+    {
+        if (hookId != IntPtr.Zero) return;
+        proc = HookCallback;
+        using (Process curProcess = Process.GetCurrentProcess())
+        using (ProcessModule curModule = curProcess.MainModule)
+        {
+            hookId = Native.SetWindowsHookEx(13 /* WH_KEYBOARD_LL */, proc, Native.GetModuleHandle(curModule.ModuleName), 0);
+        }
+        Log.Write(hookId != IntPtr.Zero ? "Đã gắn bộ bắt phím Win+L (WH_KEYBOARD_LL)" : "Gắn bộ bắt phím WH_KEYBOARD_LL thất bại");
+    }
+
+    public void ApplyWinLPolicy(bool interceptWinL)
+    {
+        if (InstallProfile.Isolated) return;
+        try
+        {
+            using (RegistryKey k = Registry.CurrentUser.CreateSubKey(PolicyKey))
+            {
+                if (k == null) return;
+                if (interceptWinL)
+                    k.SetValue(PolicyValue, 1, RegistryValueKind.DWord);
+                else
+                    k.DeleteValue(PolicyValue, false);
+            }
+            Log.Write(interceptWinL
+                ? "Đã bật chế độ bắt phím Win+L cho màn hình khóa động Deskland"
+                : "Đã khôi phục phím Win+L mặc định của Windows");
+        }
+        catch (Exception ex)
+        {
+            Log.Write("Cập nhật cấu hình phím Win+L thất bại: " + ex.Message);
+        }
+    }
+
+    IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0)
+        {
+            int msg = wParam.ToInt32();
+            bool keyDown = (msg == 0x0100 /* WM_KEYDOWN */ || msg == 0x0104 /* WM_SYSKEYDOWN */);
+            bool keyUp = (msg == 0x0101 /* WM_KEYUP */ || msg == 0x0105 /* WM_SYSKEYUP */);
+            Native.KBDLLHOOKSTRUCT kb = (Native.KBDLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(Native.KBDLLHOOKSTRUCT));
+            int vk = (int)kb.vkCode;
+            bool altDown = (kb.flags & 0x20 /* LLKHF_ALTDOWN */) != 0;
+
+            if (vk == 0x5B /* VK_LWIN */ || vk == 0x5C /* VK_RWIN */)
+            {
+                if (keyDown) winDown = true;
+                else if (keyUp) winDown = false;
+            }
+
+            bool winHeld = winDown || (Native.GetAsyncKeyState(0x5B) & 0x8000) != 0 || (Native.GetAsyncKeyState(0x5C) & 0x8000) != 0;
+
+            // Khi nhấn Win + L và bật chế độ màn hình khóa động Deskland
+            if (keyDown && vk == (int)Keys.L && winHeld && Settings.LockOverrideWinL)
+            {
+                if (WinLPressed != null) WinLPressed();
+                return new IntPtr(1);
+            }
+
+            // Khi màn hình khóa động đang hiển thị, chặn các tổ hợp phím thoát cửa sổ hệ thống
+            if (IsLocked != null && IsLocked())
+            {
+                if (vk == 0x5B || vk == 0x5C) return new IntPtr(1); // Chặn phím Windows
+                if (altDown && (vk == (int)Keys.Tab || vk == (int)Keys.Escape || vk == (int)Keys.F4)) return new IntPtr(1); // Chặn Alt+Tab, Alt+Esc, Alt+F4
+                if (vk == (int)Keys.Escape && (Native.GetAsyncKeyState(0x11 /* VK_CONTROL */) & 0x8000) != 0) return new IntPtr(1); // Chặn Ctrl+Esc
+            }
+        }
+        return Native.CallNextHookEx(hookId, nCode, wParam, lParam);
+    }
+
+    public void Dispose()
+    {
+        if (hookId != IntPtr.Zero)
+        {
+            Native.UnhookWindowsHookEx(hookId);
+            hookId = IntPtr.Zero;
+        }
+        ApplyWinLPolicy(false);
+    }
+}
+
 // Cửa sổ ẩn nhận phím tắt toàn cục
 class HotkeyWindow : NativeWindow, IDisposable
 {
-    public event EventHandler Pressed;
-    bool registered;
+    public event Action<int> HotkeyPressed;
+    readonly List<int> registeredIds = new List<int>();
 
     public HotkeyWindow()
     {
@@ -884,22 +1185,25 @@ class HotkeyWindow : NativeWindow, IDisposable
         CreateHandle(cp);
     }
 
-    public bool Register(uint modifiers, Keys key)
+    public bool Register(int id, uint modifiers, Keys key)
     {
-        registered = Native.RegisterHotKey(Handle, 1, modifiers, (uint)key);
-        return registered;
+        bool ok = Native.RegisterHotKey(Handle, id, modifiers, (uint)key);
+        if (ok) registeredIds.Add(id);
+        return ok;
     }
 
     protected override void WndProc(ref Message m)
     {
-        if (m.Msg == 0x0312 /* WM_HOTKEY */ && Pressed != null) Pressed(this, EventArgs.Empty);
+        if (m.Msg == 0x0312 /* WM_HOTKEY */ && HotkeyPressed != null)
+            HotkeyPressed(m.WParam.ToInt32());
         base.WndProc(ref m);
     }
 
     public void Dispose()
     {
-        if (registered) Native.UnregisterHotKey(Handle, 1);
-        registered = false;
+        for (int i = 0; i < registeredIds.Count; i++)
+            Native.UnregisterHotKey(Handle, registeredIds[i]);
+        registeredIds.Clear();
         if (Handle != IntPtr.Zero) DestroyHandle();
     }
 }
@@ -1019,6 +1323,145 @@ class SettingsForm : Form
     }
 }
 
+// Cửa sổ Màn hình khóa động (Live Lock Screen & Widget Overlay) phủ trên toàn bộ các màn hình
+class LockScreenForm : Form
+{
+    readonly WebView2 web;
+    readonly System.Windows.Forms.Timer focusTimer;
+    readonly string pageDir, page, lockPin, settingsJson, iconsJson;
+    readonly bool isPrimary, showWidget, requireAuth;
+    readonly Action onUnlock;
+    bool shuttingDown;
+
+    public LockScreenForm(string pageDir, string page, Rectangle bounds, bool isPrimary, bool showWidget, bool requirePassSetting, string lockPin, string settingsJson, string iconsJson, Action onUnlock)
+    {
+        this.pageDir = pageDir;
+        this.page = page;
+        this.isPrimary = isPrimary;
+        this.showWidget = showWidget;
+        this.lockPin = (lockPin ?? "").Trim();
+        this.requireAuth = requirePassSetting || this.lockPin.Length > 0;
+        this.settingsJson = settingsJson;
+        this.iconsJson = iconsJson;
+        this.onUnlock = onUnlock;
+
+        FormBorderStyle = FormBorderStyle.None;
+        StartPosition = FormStartPosition.Manual;
+        Bounds = bounds;
+        TopMost = true;
+        ShowInTaskbar = false;
+        KeyPreview = true;
+        BackColor = Color.FromArgb(18, 28, 38);
+        Text = "DesklandLockScreen";
+
+        web = new WebView2();
+        web.Dock = DockStyle.Fill;
+        web.DefaultBackgroundColor = BackColor;
+        web.CreationProperties = new CoreWebView2CreationProperties();
+        web.CreationProperties.UserDataFolder = Path.Combine(Log.DataDir, "WebView2");
+        Controls.Add(web);
+
+        if (!this.requireAuth)
+        {
+            KeyDown += delegate { RequestUnlock(); };
+            MouseDown += delegate { RequestUnlock(); };
+        }
+        else if (isPrimary)
+        {
+            focusTimer = new System.Windows.Forms.Timer();
+            focusTimer.Interval = 600;
+            focusTimer.Tick += delegate
+            {
+                if (shuttingDown || IsDisposed) return;
+                try
+                {
+                    if (!TopMost) TopMost = true;
+                    IntPtr fg = Native.GetForegroundWindow();
+                    if (fg != Handle) Activate();
+                }
+                catch { }
+            };
+            focusTimer.Start();
+        }
+    }
+
+    void RequestUnlock()
+    {
+        if (shuttingDown) return;
+        if (onUnlock != null) onUnlock();
+    }
+
+    bool CheckCredential(string entered)
+    {
+        string val = entered ?? "";
+        if (lockPin.Length > 0 && val == lockPin) return true;
+        return Native.VerifyWindowsPassword(val, lockPin.Length == 0);
+    }
+
+    protected override async void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        try
+        {
+            await web.EnsureCoreWebView2Async(null);
+            if (shuttingDown || IsDisposed) return;
+            var core = web.CoreWebView2;
+            core.SetVirtualHostNameToFolderMapping("app.local", pageDir, CoreWebView2HostResourceAccessKind.Allow);
+            core.Settings.AreDefaultContextMenusEnabled = false;
+            core.Settings.IsStatusBarEnabled = false;
+            core.Settings.IsZoomControlEnabled = false;
+            core.WebMessageReceived += delegate(object s, CoreWebView2WebMessageReceivedEventArgs a)
+            {
+                string msg = null;
+                try { msg = a.TryGetWebMessageAsString(); } catch { }
+                if (msg == "unlock" && !requireAuth) { RequestUnlock(); return; }
+                if (msg != null && msg.StartsWith("unlockPin|"))
+                {
+                    string entered = msg.Substring(10);
+                    if (CheckCredential(entered)) RequestUnlock();
+                    else
+                    {
+                        try { core.PostWebMessageAsString("{\"t\":\"pinError\"}"); } catch { }
+                    }
+                    return;
+                }
+                if (msg == "ready")
+                {
+                    try
+                    {
+                        if (!string.IsNullOrEmpty(settingsJson)) core.PostWebMessageAsString(settingsJson);
+                        if (!string.IsNullOrEmpty(iconsJson)) core.PostWebMessageAsString(iconsJson);
+                        core.PostWebMessageAsString("{\"t\":\"pause\",\"v\":false}");
+                    }
+                    catch { }
+                }
+            };
+            string winUser = Environment.UserName ?? "User";
+            string url = "https://app.local/" + page + "?wallpaper=1&lockscreen=1" +
+                "&widget=" + (showWidget ? "1" : "0") +
+                "&primary=" + (isPrimary ? "1" : "0") +
+                "&pin=" + (requireAuth ? "1" : "0") +
+                "&user=" + Uri.EscapeDataString(winUser) +
+                "&lang=" + Uri.EscapeDataString(I18n.Code);
+            core.Navigate(url);
+        }
+        catch (Exception ex)
+        {
+            Log.Write("Khởi tạo cửa sổ màn hình khóa thất bại: " + ex.Message);
+            RequestUnlock();
+        }
+    }
+
+    public void Shutdown()
+    {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        if (focusTimer != null) { try { focusTimer.Stop(); focusTimer.Dispose(); } catch { } }
+        try { web.Dispose(); } catch { }
+        try { Close(); } catch { }
+    }
+}
+
 class WallpaperForm : Form
 {
     readonly WebView2 web;
@@ -1033,10 +1476,12 @@ class WallpaperForm : Form
 
     public bool Fatal { get; private set; }
     public bool IsPrimary { get; private set; }
+    public bool IsCoveredByFullscreen { get { return lastPause == 1 && !manualPause; } }
 
     string page;
     public Func<string> SettingsJson;
     public event Action<string> IconsChanged;
+    public event Action SceneReady;
     public string LastIcons { get { return lastIcons; } }
     protected override bool ShowWithoutActivation { get { return true; } }
 
@@ -1069,6 +1514,36 @@ class WallpaperForm : Form
     }
 
     public void SetManualPause(bool v) { manualPause = v; PollForeground(); }
+
+    // ---- Chụp ảnh đồng bộ màn hình khóa Windows (không vẽ biểu tượng mẫu) ----
+    Action<string, string> lockSnapDone;
+    System.Windows.Forms.Timer lockSnapTimeout;
+    public void RequestLockSnapshot(Action<string, string> done)
+    {
+        if (web.CoreWebView2 == null) { done(null, I18n.T("errNotReady")); return; }
+        if (lockSnapDone != null) { done(null, I18n.T("errBusyImage")); return; }
+        lockSnapDone = done;
+        lockSnapTimeout = new System.Windows.Forms.Timer();
+        lockSnapTimeout.Interval = 15000;
+        lockSnapTimeout.Tick += delegate { FinishLockSnap(null, I18n.T("errImageTimeout")); };
+        lockSnapTimeout.Start();
+        try { web.CoreWebView2.PostWebMessageAsString("{\"t\":\"locksnap\"}"); }
+        catch (Exception ex) { FinishLockSnap(null, ex.Message); }
+    }
+    void OnLockSnapshot(string msg)
+    {
+        string[] p = msg.Split(new[] { '|' }, 3);
+        if (p.Length < 2) FinishLockSnap(null, I18n.T("errBadData"));
+        else if (p[1] == "error") FinishLockSnap(null, p.Length >= 3 ? p[2] : "error");
+        else FinishLockSnap(p[1], null);
+    }
+    void FinishLockSnap(string png, string err)
+    {
+        if (lockSnapTimeout != null) { lockSnapTimeout.Stop(); lockSnapTimeout.Dispose(); lockSnapTimeout = null; }
+        var done = lockSnapDone;
+        lockSnapDone = null;
+        if (done != null) done(png, err);
+    }
 
     // ---- Chia sẻ ảnh ----
     Action<string, string, string> snapshotDone;
@@ -1191,10 +1666,12 @@ class WallpaperForm : Form
                 string msg = null;
                 try { msg = a.TryGetWebMessageAsString(); } catch { }
                 if (msg != null && msg.StartsWith("snapshot|")) { OnSnapshot(msg); return; }
+                if (msg != null && msg.StartsWith("locksnap|")) { OnLockSnapshot(msg); return; }
                 if (msg != null && msg.StartsWith("recprogress|")) { if (RecordProgress != null) RecordProgress(msg.Substring(12)); return; }
                 if (msg != null && msg.StartsWith("record|")) { OnRecord(msg); return; }
                 if (SettingsJson != null) core.PostWebMessageAsString(SettingsJson());
                 lastIcons = ""; lastPause = -1; PollIcons(); PollForeground();
+                if (SceneReady != null) SceneReady();
             };
             core.Navigate(PageUrl);
             iconTimer.Start();
@@ -1540,7 +2017,65 @@ static class Native
 
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
+    [StructLayout(LayoutKind.Sequential)] public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
+    [StructLayout(LayoutKind.Sequential)] public struct KBDLLHOOKSTRUCT { public uint vkCode, scanCode, flags, time; public IntPtr dwExtraInfo; }
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    public delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")] public static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+    [DllImport("user32.dll")] public static extern bool UnhookWindowsHookEx(IntPtr hhk);
+    [DllImport("user32.dll")] public static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr GetModuleHandle(string lpModuleName);
+    [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);
+    [DllImport("user32.dll")] public static extern bool LockWorkStation();
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool LogonUser(string lpszUsername, string lpszDomain, string lpszPassword, int dwLogonType, int dwLogonProvider, out IntPtr phToken);
+
+    public static bool VerifyWindowsPassword(string password, bool allowBlankIfAccountHasNoPassword)
+    {
+        if (password == null) return false;
+        string user = Environment.UserName;
+        string domain = Environment.UserDomainName;
+        string[] domains = new[] { ".", domain, null };
+        int[] logonTypes = new[] { 2 /* LOGON32_LOGON_INTERACTIVE */, 3 /* LOGON32_LOGON_NETWORK */ };
+        if (password.Length > 0)
+        {
+            for (int d = 0; d < domains.Length; d++)
+            {
+                for (int t = 0; t < logonTypes.Length; t++)
+                {
+                    IntPtr token = IntPtr.Zero;
+                    try
+                    {
+                        if (LogonUser(user, domains[d], password, logonTypes[t], 0, out token))
+                            return true;
+                    }
+                    catch { }
+                    finally { if (token != IntPtr.Zero) CloseHandle(token); }
+                }
+            }
+        }
+        if (allowBlankIfAccountHasNoPassword)
+        {
+            IntPtr emptyTok = IntPtr.Zero;
+            try
+            {
+                if (LogonUser(user, ".", "", 2, 0, out emptyTok) || Marshal.GetLastWin32Error() == 1327 /* ERROR_ACCOUNT_RESTRICTION */)
+                    return true;
+            }
+            catch { }
+            finally { if (emptyTok != IntPtr.Zero) CloseHandle(emptyTok); }
+        }
+        return false;
+    }
+
+    [DllImport("user32.dll")] public static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
+    public static uint GetIdleMilliseconds()
+    {
+        var lii = new LASTINPUTINFO { cbSize = (uint)Marshal.SizeOf(typeof(LASTINPUTINFO)) };
+        if (!GetLastInputInfo(ref lii)) return 0;
+        return unchecked((uint)Environment.TickCount - lii.dwTime);
+    }
 
     [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();

@@ -94,10 +94,34 @@
     "resetOne": "Khôi phục mặc định: {v}",
     "resetOneAria": "Đặt lại {label} về mặc định",
     "dblclickReset": "Nháy đúp để đặt lại mặc định ({v})",
-    "comingSoon": "Sắp có:"
+    "comingSoon": "Sắp có:",
+    "lockGroupTitle": "Màn hình khóa",
+    "lockNow": "Khóa màn hình",
+    "lockNowTitle": "Bật màn hình khóa động Deskland ngay (Win+L / Ctrl+Alt+L)",
+    "lockWinLLabel": "Dùng phím Windows + L cho màn hình khóa động",
+    "lockWinLHint": "Nhấn Win + L sẽ mở ngay màn hình khóa động WebGL2 và Widget của Deskland thay vì màn hình tĩnh",
+    "lockWidgetLabel": "Widget đồng hồ trên màn hình khóa",
+    "lockWidgetHint": "Hiển thị đồng hồ lớn, ngày tháng và uốn địa hình cảnh vật bao quanh Widget",
+    "lockPinLabel": "Mã PIN mở khóa nhanh (tùy chọn)",
+    "lockPinHint": "Mặc định dùng mật khẩu tài khoản Windows; có thể đặt thêm mã PIN riêng tại đây để mở khóa nhanh",
+    "lockPinPlaceholder": "Dùng MK Windows",
+    "lockIdleLabel": "Tự động bật khi máy nghỉ",
+    "lockIdleHint": "Tự động hiện màn hình khóa động khi không dùng chuột và bàn phím",
+    "lockIdleOff": "Tắt",
+    "lockIdle1m": "1 phút",
+    "lockIdle3m": "3 phút",
+    "lockIdle5m": "5 phút",
+    "lockIdle10m": "10 phút",
+    "lockIdle15m": "15 phút",
+    "lockIdle30m": "30 phút",
+    "lockAuthLabel": "Yêu cầu nhập mật khẩu trên màn hình khóa động",
+    "lockAuthHint": "Hiển thị khung tài khoản Windows và bắt nhập mật khẩu/PIN ngay trên nền cảnh động WebGL2",
+    "lockSyncWinLabel": "Đồng bộ ảnh nền uốn quanh đồng hồ Windows",
+    "lockSyncWinHint": "Tự động xuất ảnh cảnh hiện tại (có uốn địa hình quanh vị trí đồng hồ Windows 11) làm nền khóa mặc định"
   },
   "host": {
     "traySettings": "Cài đặt…",
+    "trayLock": "Khóa màn hình (Win+L / Ctrl+Alt+L)",
     "trayPause": "Tạm dừng chuyển động",
     "trayReload": "Tải lại",
     "trayAutostart": "Khởi động cùng Windows",
@@ -502,6 +526,34 @@
           "label": "Chim én mùa xuân",
           "hint": "Những đôi chim én chao liệng báo hiệu mùa xuân về",
           "unit": "con"
+        }
+      }
+    },
+    "cat-hill": {
+      "name": "Đồi mèo nắng ấm",
+      "desc": "Đồi cỏ xanh mướt tràn ngập nắng ấm với đàn mèo mập đi dạo, ngồi liếm lông, nằm ngủ thở nhịp nhàng dưới bóng cây và lá bay trong gió",
+      "groups": [
+        "Đàn mèo trên đồi",
+        "Lùm cây & Gió thổi lá bay"
+      ],
+      "params": {
+        "cats": {
+          "label": "Số lượng mèo",
+          "hint": "Số lượng các chú mèo đi dạo, ngồi liếm lông và nằm ngủ thở trên đồi cỏ",
+          "unit": "bé"
+        },
+        "butterflies": {
+          "label": "Bươm bướm vàng",
+          "hint": "Những chú bươm bướm nhỏ bay lượn quanh đàn mèo và khóm hoa dại",
+          "unit": "con"
+        },
+        "leaves": {
+          "label": "Mật độ lá bay & lá rụng",
+          "hint": "Số lượng lá vàng và lá xanh bay theo gió và đáp nhẹ xuống thảm cỏ"
+        },
+        "wind": {
+          "label": "Sức gió trên đồi",
+          "hint": "Tốc độ đung đưa của tán cây, lùm cây bụi và tốc độ gió thổi bay lá"
         }
       }
     }

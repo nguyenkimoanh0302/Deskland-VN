@@ -855,6 +855,68 @@
           ]
         }
       ]
+    },
+    {
+      "id": "cat-hill",
+      "adaptive": false,
+      "name": "Đồi mèo nắng ấm",
+      "desc": "Đồi cỏ xanh mướt tràn ngập nắng ấm với đàn mèo mập đi dạo, ngồi liếm lông, nằm ngủ thở nhịp nhàng dưới bóng cây và lá bay trong gió",
+      "page": "cat-hill.html",
+      "status": "ready",
+      "product": "free",
+      "thumb": "url(thumbs/cat-hill.jpg) center / cover no-repeat, linear-gradient(180deg, #54c0ff 0%, #54c0ff 28%, #a6e544 30%, #73c634 100%)",
+      "groups": [
+        {
+          "name": "Đàn mèo trên đồi",
+          "params": [
+            {
+              "key": "cats",
+              "label": "Số lượng mèo",
+              "hint": "Số lượng các chú mèo đi dạo, ngồi liếm lông và nằm ngủ thở trên đồi cỏ",
+              "min": 3,
+              "max": 15,
+              "step": 1,
+              "default": 8,
+              "unit": "bé"
+            },
+            {
+              "key": "butterflies",
+              "label": "Bươm bướm vàng",
+              "hint": "Những chú bươm bướm nhỏ bay lượn quanh đàn mèo và khóm hoa dại",
+              "min": 0,
+              "max": 6,
+              "step": 1,
+              "default": 2,
+              "unit": "con"
+            }
+          ]
+        },
+        {
+          "name": "Lùm cây & Gió thổi lá bay",
+          "params": [
+            {
+              "key": "leaves",
+              "label": "Mật độ lá bay & lá rụng",
+              "hint": "Số lượng lá vàng và lá xanh bay theo gió và đáp nhẹ xuống thảm cỏ",
+              "min": 0,
+              "max": 1,
+              "step": 0.05,
+              "default": 0.65,
+              "format": "percent"
+            },
+            {
+              "key": "wind",
+              "label": "Sức gió trên đồi",
+              "hint": "Tốc độ đung đưa của tán cây, lùm cây bụi và tốc độ gió thổi bay lá",
+              "min": 0,
+              "max": 3,
+              "step": 0.05,
+              "default": 1,
+              "format": "times"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

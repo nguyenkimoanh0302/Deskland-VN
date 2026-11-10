@@ -94,10 +94,34 @@
     "resetOne": "Reset to default: {v}",
     "resetOneAria": "Reset {label} to default",
     "dblclickReset": "Double-click to reset ({v})",
-    "comingSoon": "Coming soon:"
+    "comingSoon": "Coming soon:",
+    "lockGroupTitle": "Lock Screen",
+    "lockNow": "Lock screen",
+    "lockNowTitle": "Launch the Deskland live lock screen now (Win+L / Ctrl+Alt+L)",
+    "lockWinLLabel": "Use Windows + L for live lock screen",
+    "lockWinLHint": "Pressing Win + L launches Deskland's animated WebGL2 scene and widget instead of the static lock screen",
+    "lockWidgetLabel": "Clock widget on lock screen",
+    "lockWidgetHint": "Display a large clock and date while shaping the landscape around the widget",
+    "lockPinLabel": "Quick unlock PIN (optional)",
+    "lockPinHint": "Uses your Windows account password by default; optionally set a custom PIN here for quick unlock",
+    "lockPinPlaceholder": "Windows password",
+    "lockIdleLabel": "Auto-start when idle",
+    "lockIdleHint": "Automatically show the live lock screen when mouse and keyboard are inactive",
+    "lockIdleOff": "Off",
+    "lockIdle1m": "1 min",
+    "lockIdle3m": "3 min",
+    "lockIdle5m": "5 min",
+    "lockIdle10m": "10 min",
+    "lockIdle15m": "15 min",
+    "lockIdle30m": "30 min",
+    "lockAuthLabel": "Require password on live lock screen",
+    "lockAuthHint": "Show your Windows user profile and require password/PIN sign-in directly over the live WebGL2 wallpaper",
+    "lockSyncWinLabel": "Sync scene around Windows lock screen clock",
+    "lockSyncWinHint": "Automatically set a snapshot of your scene (shaped around the Windows 11 clock position) as the system lock screen background"
   },
   "host": {
     "traySettings": "Settings…",
+    "trayLock": "Lock screen (Win+L / Ctrl+Alt+L)",
     "trayPause": "Pause animation",
     "trayReload": "Reload",
     "trayAutostart": "Start with Windows",
@@ -501,6 +525,34 @@
           "label": "Spring swallows",
           "hint": "Fork-tailed swallows gliding gracefully across the blossoms",
           "unit": ""
+        }
+      }
+    },
+    "cat-hill": {
+      "name": "Sunny Cat Hill",
+      "desc": "A sunlit green hillside with chubby cats strolling around, sitting to lick their paws, and breathing gently in their sleep beneath swaying trees and falling leaves",
+      "groups": [
+        "Cats on the Hill",
+        "Trees & Falling Leaves"
+      ],
+      "params": {
+        "cats": {
+          "label": "Number of cats",
+          "hint": "How many chubby cats walk, groom their fur, and nap across the hillside",
+          "unit": ""
+        },
+        "butterflies": {
+          "label": "Butterflies",
+          "hint": "Yellow butterflies fluttering around the cats and wildflowers",
+          "unit": ""
+        },
+        "leaves": {
+          "label": "Falling leaves",
+          "hint": "Density of golden and green leaves drifting in the breeze and settling on the grass"
+        },
+        "wind": {
+          "label": "Hillside breeze",
+          "hint": "How strongly the trees, bushes, and falling leaves sway in the wind"
         }
       }
     }
