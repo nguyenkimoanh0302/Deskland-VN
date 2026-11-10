@@ -12,7 +12,14 @@ target/release/deskland-rs.exe --quit             # thoát (hoặc chuột phả
 target/release/deskland-rs.exe --snapshot <thư mục>  # lưu BMP khung hình từ GPU sau 4 giây
 ```
 
-Đọc chủ đề và `seed` / tham số từ `%LOCALAPPDATA%\DesklandPreview\settings.json` (dùng chung với bản C#).
+Cài đặt lưu ở `~/.deskland-rs/settings.json` (chủ đề, `seed` + thông số từng chủ đề, `lockSyncWin`, `lockIdleMins`).
+Lần đầu chưa có file này thì đọc của bản C# (`%LOCALAPPDATA%\DesklandPreview\settings.json`), không ghi đè file của bản C#.
+
+**Cửa sổ Cài đặt**: bấm chuột trái icon khay (hoặc chuột phải > Cài đặt…, hoặc `deskland-rs.exe --settings`).
+Dùng control gốc Win32 (không WebView2): đổi chủ đề, Đổi cảnh (seed mới), thanh trượt thông số giống bảng của bản web
+(áp dụng khi thả chuột), Đặt lại mặc định, Khóa máy ngay, Khóa với cảnh động, cảnh động khi rảnh + số phút, ảnh màn khóa,
+Khởi động cùng Windows (`HKCU\...\Run\DesklandRs`). Mọi thay đổi lưu ngay. RAM riêng tăng ~20 MB khi cửa sổ đang mở,
+về lại như cũ khi đóng.
 Nhật ký: `deskland-rs.log` cạnh file exe (in RAM + khung/giây mỗi 10 giây).
 
 ## Đã port
@@ -51,8 +58,8 @@ Không hook bàn phím, không chặn Win+L, không ghi `DisableLockWorkstation`
 
 ## Chưa port
 Cây dừa (`beach-palms.js`), cậu bé + mèo (`meadow-boy.js`, `meadow-cat.js`), gợn nước khi bấm, 8 chủ đề còn lại,
-đồng hồ / widget trên màn khóa (màn khóa thật của Windows không cho vẽ đè), cửa sổ Cài đặt, chia sẻ ảnh/video,
-tự khởi động, đa ngôn ngữ.
+đồng hồ / widget trên màn khóa (màn khóa thật của Windows không cho vẽ đè), chia sẻ ảnh/video, đa ngôn ngữ,
+ảnh xem trước chủ đề trong cửa sổ Cài đặt.
 
 ## Kết quả đo (10/11/2026, Intel UHD 770, 2 màn 1920×1080, `tools/measure-ram.ps1`)
 

@@ -43,7 +43,7 @@ fn reg_get_dword(root: HKEY, key: &str, name: &str) -> Option<u32> {
     (r == ERROR_SUCCESS).then_some(v)
 }
 
-fn reg_get_string(root: HKEY, key: &str, name: &str) -> Option<String> {
+pub(crate) fn reg_get_string(root: HKEY, key: &str, name: &str) -> Option<String> {
     let (k, n) = (wide(key), wide(name));
     let mut buf = vec![0u16; 1024];
     let mut sz = (buf.len() * 2) as u32;
@@ -55,7 +55,7 @@ fn reg_get_string(root: HKEY, key: &str, name: &str) -> Option<String> {
     Some(String::from_utf16_lossy(&buf[..len]))
 }
 
-fn reg_set_string(root: HKEY, key: &str, name: &str, val: &str) -> bool {
+pub(crate) fn reg_set_string(root: HKEY, key: &str, name: &str, val: &str) -> bool {
     let (k, n, v) = (wide(key), wide(name), wide(val));
     let r = unsafe { RegSetKeyValueW(root, k.as_ptr(), n.as_ptr(), REG_SZ, v.as_ptr() as *const _, (v.len() * 2) as u32) };
     r == ERROR_SUCCESS
@@ -188,4 +188,10 @@ pub fn sync_lock_image(bmp: &std::path::Path) {
         Ok(_) => crate::log!("Đang đặt ảnh màn khóa Windows: {}", jpg.display()),
         Err(e) => crate::log!("Không chạy được PowerShell để đặt ảnh màn khóa: {e}"),
     }
+}
+
+pub(crate) fn reg_delete_value(root: HKEY, key: &str, name: &str) -> bool {
+    let (k, n) = (wide(key), wide(name));
+    let r = unsafe { RegDeleteKeyValueW(root, k.as_ptr(), n.as_ptr()) };
+    r == ERROR_SUCCESS || r == ERROR_FILE_NOT_FOUND
 }

@@ -7,6 +7,7 @@
 mod desktop;
 mod engine;
 mod lock;
+mod settings;
 mod themes {
     pub mod beach;
     pub mod meadow;
@@ -63,6 +64,8 @@ const CMD_SAVER: usize = 111;
 const CMD_SYNC: usize = 112;
 const CMD_WINL: usize = 113;
 const CMD_SAVER_NOW: usize = 114;
+const CMD_SETTINGS: usize = 115;
+const WM_OPEN_SETTINGS: u32 = WM_APP + 2;
 const CMD_EXIT: usize = 199;
 const HOTKEY_SAVER: i32 = 1;
 const WM_WTSSESSION_CHANGE_: u32 = 0x02B1;
@@ -102,6 +105,10 @@ unsafe extern "system" fn msg_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRE
             }
             0
         }
+        WM_OPEN_SETTINGS => {
+            PENDING_CMD.with(|c| c.set(CMD_SETTINGS));
+            0
+        }
         WM_HOTKEY if w as i32 == HOTKEY_SAVER => {
             // Nhận WM_HOTKEY cho phép tiến trình đưa cửa sổ lên trước (cần cho SC_SCREENSAVE)
             SetForegroundWindow(h);
@@ -110,8 +117,13 @@ unsafe extern "system" fn msg_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRE
         }
         WM_TRAY => {
             let ev = (l as u32) & 0xFFFF;
-            if ev == WM_RBUTTONUP || ev == WM_LBUTTONUP || ev == WM_CONTEXTMENU {
+            if ev == WM_LBUTTONUP {
+                PENDING_CMD.with(|c| c.set(CMD_SETTINGS));
+            } else if ev == WM_RBUTTONUP || ev == WM_CONTEXTMENU {
                 let menu = CreatePopupMenu();
+                AppendMenuW(menu, MF_STRING, CMD_SETTINGS, wide("Cài đặt…").as_ptr());
+                SetMenuDefaultItem(menu, CMD_SETTINGS as u32, 0);
+                AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
                 let cur = CURRENT_THEME.with(|c| c.get());
                 let flag = |id: usize| if cur == id { MF_STRING | MF_CHECKED } else { MF_STRING };
                 AppendMenuW(menu, flag(CMD_BEACH), CMD_BEACH, wide("Bãi biển").as_ptr());
@@ -251,9 +263,16 @@ struct Config {
     lock_idle_mins: u32,
 }
 
+fn rust_settings_path() -> std::path::PathBuf {
+    lock::data_dir().join("settings.json")
+}
+
+/// Đọc `~/.deskland-rs/settings.json` (cài đặt riêng của bản Rust); chưa có thì đọc của bản C#
+/// (`%LOCALAPPDATA%/DesklandPreview/settings.json`) để giữ chủ đề / thông số đang dùng.
 fn load_config(cli_theme: Option<String>) -> Config {
-    let path = std::env::var("LOCALAPPDATA").map(|d| format!("{d}\\DesklandPreview\\settings.json")).unwrap_or_default();
-    let root: serde_json::Value = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(serde_json::Value::Null);
+    let read = |p: &std::path::Path| std::fs::read_to_string(p).ok().and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+    let cs = std::env::var("LOCALAPPDATA").map(|d| std::path::PathBuf::from(d).join("DesklandPreview").join("settings.json")).unwrap_or_default();
+    let root = read(&rust_settings_path()).or_else(|| read(&cs)).unwrap_or(serde_json::Value::Null);
     let saved = root.get("theme").and_then(|v| v.as_str()).unwrap_or("beach").to_string();
     let mut theme = cli_theme.unwrap_or(saved);
     if theme != "beach" && theme != "meadow" {
@@ -265,6 +284,21 @@ fn load_config(cli_theme: Option<String>) -> Config {
         params: root.get("params").cloned().unwrap_or(serde_json::Value::Null),
         lock_sync: root.get("lockSyncWin").and_then(|v| v.as_bool()).unwrap_or(true),
         lock_idle_mins: root.get("lockIdleMins").and_then(|v| v.as_u64()).map(|v| v as u32).filter(|&v| v > 0).unwrap_or(5),
+    }
+}
+
+/// Lưu cài đặt của bản Rust (không đụng file của bản C#). Không lưu mật khẩu / PIN nào.
+fn save_config(cfg: &Config) {
+    let v = serde_json::json!({
+        "version": 1,
+        "theme": cfg.theme,
+        "lockSyncWin": LOCK_SYNC.with(|c| c.get()),
+        "lockIdleMins": cfg.lock_idle_mins,
+        "params": cfg.params,
+    });
+    let p = rust_settings_path();
+    if let Err(e) = std::fs::write(&p, serde_json::to_string_pretty(&v).unwrap_or_default()) {
+        log!("Lưu cài đặt {} lỗi: {e}", p.display());
     }
 }
 
@@ -420,6 +454,7 @@ impl App {
     }
 
     fn create_walls(&mut self) -> Result<(), String> {
+        self.ensure_seed();
         let mons = monitors();
         log!("Phát hiện {} màn hình", mons.len());
         let cls = wide(if self.saver { SAVER_CLASS } else { WALL_CLASS });
@@ -574,6 +609,48 @@ impl App {
         }
         log!("Đổi chủ đề -> {theme}");
         self.cfg.theme = theme.into();
+        self.rebuild_theme();
+    }
+
+    /// Thông số của chủ đề hiện tại (tạo object nếu chưa có).
+    fn theme_params_mut(&mut self) -> &mut serde_json::Map<String, serde_json::Value> {
+        if !self.cfg.params.is_object() {
+            self.cfg.params = serde_json::json!({});
+        }
+        let theme = self.cfg.theme.clone();
+        let root = self.cfg.params.as_object_mut().unwrap();
+        let e = root.entry(theme).or_insert_with(|| serde_json::json!({}));
+        if !e.is_object() {
+            *e = serde_json::json!({});
+        }
+        e.as_object_mut().unwrap()
+    }
+
+    /// Giữ cố định bố cục khi chỉnh thông số: chưa có seed thì tạo và lưu lại.
+    fn ensure_seed(&mut self) {
+        let fresh = (self.start.elapsed().as_nanos() % 1_000_000) as i64;
+        self.theme_params_mut().entry("seed").or_insert(serde_json::json!(fresh));
+    }
+
+    fn reseed(&mut self) {
+        let fresh = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0) % 1_000_000) as i64;
+        self.theme_params_mut().insert("seed".into(), serde_json::json!(fresh));
+    }
+
+    fn settings_state(&self) -> settings::State {
+        settings::State {
+            theme: self.cfg.theme.clone(),
+            params: self.cfg.params.get(&self.cfg.theme).cloned().unwrap_or(serde_json::Value::Null),
+            saver: lock::saver_installed(),
+            idle: self.cfg.lock_idle_mins,
+            sync: LOCK_SYNC.with(|c| c.get()),
+            autostart: settings::autostart_enabled(),
+            hotkey: HOTKEY_OK.with(|c| c.get()),
+        }
+    }
+
+    /// Dựng lại cảnh của chủ đề hiện tại (đổi chủ đề / thông số / seed).
+    fn rebuild_theme(&mut self) {
         let now = self.now();
         self.drop_shared();
         if let Err(e) = self.build_shared() {
@@ -791,6 +868,18 @@ fn arg_value(args: &[String], name: &str) -> Option<String> {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    // `--settings`: mở cửa sổ cài đặt của bản đang chạy (nếu có), không thì khởi động rồi mở
+    let open_settings = args.iter().any(|a| a == "--settings");
+    if open_settings {
+        let cls = wide(MSG_CLASS);
+        unsafe {
+            let h = FindWindowW(cls.as_ptr(), std::ptr::null());
+            if !h.is_null() {
+                PostMessageW(h, WM_OPEN_SETTINGS, 0, 0);
+                return;
+            }
+        }
+    }
     if args.iter().any(|a| a == "--quit") {
         let cls = wide(MSG_CLASS);
         unsafe {
@@ -848,7 +937,6 @@ fn main() {
     );
     CURRENT_THEME.with(|c| c.set(if cfg.theme == "meadow" { CMD_MEADOW } else { CMD_BEACH }));
     let lock_sync = cfg.lock_sync;
-    let lock_idle_mins = cfg.lock_idle_mins;
     LOCK_SYNC.with(|c| c.set(lock_sync));
 
     register_class(MSG_CLASS, Some(msg_proc), false);
@@ -924,6 +1012,9 @@ fn main() {
     }
     app.poll_icons();
     app.render();
+    if open_settings && !saver {
+        PENDING_CMD.with(|c| c.set(CMD_SETTINGS));
+    }
     log!("Khung hình đầu tiên sau {:.0} ms kể từ khi khởi động", t_start.elapsed().as_secs_f64() * 1000.0);
     if saver {
         unsafe {
@@ -960,11 +1051,80 @@ fn main() {
                 if msg.message == WM_QUIT {
                     break 'outer;
                 }
+                // Phím Tab / Enter / mũi tên trong cửa sổ cài đặt
+                if let Some(sh) = settings::hwnd() {
+                    if IsDialogMessageW(sh, &msg) != 0 {
+                        continue;
+                    }
+                }
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
         }
-        match PENDING_CMD.with(|c| c.replace(0)) {
+        let cmd = PENDING_CMD.with(|c| c.replace(0));
+        let actions = settings::take_actions();
+        let changed = cmd != 0 || !actions.is_empty();
+        for a in actions {
+            use settings::Action;
+            match a {
+                Action::Theme(t) => {
+                    app.switch_theme(t);
+                    CURRENT_THEME.with(|c| c.set(if t == "meadow" { CMD_MEADOW } else { CMD_BEACH }));
+                }
+                Action::Param(k, v) => {
+                    app.ensure_seed();
+                    app.theme_params_mut().insert(k.into(), serde_json::json!(v));
+                    log!("Thông số {}.{k} = {v}", app.cfg.theme);
+                    app.rebuild_theme();
+                }
+                Action::Reseed => {
+                    app.reseed();
+                    log!("Đổi cảnh (seed mới)");
+                    app.rebuild_theme();
+                }
+                Action::Reset => {
+                    app.ensure_seed();
+                    let m = app.theme_params_mut();
+                    let seed = m.get("seed").cloned();
+                    m.clear();
+                    if let Some(sd) = seed {
+                        m.insert("seed".into(), sd);
+                    }
+                    log!("Đặt lại thông số mặc định cho {}", app.cfg.theme);
+                    app.rebuild_theme();
+                }
+                Action::Lock => lock::lock_now(),
+                Action::SaverNow => PENDING_CMD.with(|c| c.set(CMD_SAVER_NOW)),
+                Action::Saver(on) => {
+                    if !on {
+                        lock::uninstall_saver();
+                    } else if let Err(e) = lock::install_saver(app.cfg.lock_idle_mins) {
+                        log!("Đặt trình bảo vệ màn hình lỗi: {e}");
+                        unsafe { MessageBoxW(settings::hwnd().unwrap_or(msg_hwnd), wide(&e).as_ptr(), wide("Deskland").as_ptr(), MB_OK | MB_ICONWARNING) };
+                    }
+                }
+                Action::Idle(m) => {
+                    app.cfg.lock_idle_mins = m;
+                    if lock::saver_installed() {
+                        if let Err(e) = lock::install_saver(m) {
+                            log!("Đổi thời gian trình bảo vệ màn hình lỗi: {e}");
+                        }
+                    }
+                }
+                Action::Sync(on) => {
+                    LOCK_SYNC.with(|c| c.set(on));
+                    log!("Đồng bộ ảnh màn khóa Windows: {}", if on { "bật" } else { "tắt" });
+                    if on {
+                        app.sync_lock_image();
+                    }
+                }
+                Action::Autostart(on) => settings::set_autostart(on),
+            }
+        }
+        if cmd == CMD_SETTINGS {
+            settings::open(&app.settings_state());
+        }
+        match cmd {
             CMD_EXIT => break,
             CMD_BEACH => {
                 app.switch_theme("beach");
@@ -978,7 +1138,7 @@ fn main() {
             CMD_SAVER => {
                 if lock::saver_installed() {
                     lock::uninstall_saver();
-                } else if let Err(e) = lock::install_saver(lock_idle_mins) {
+                } else if let Err(e) = lock::install_saver(app.cfg.lock_idle_mins) {
                     log!("Đặt trình bảo vệ màn hình lỗi: {e}");
                     unsafe { MessageBoxW(msg_hwnd, wide(&e).as_ptr(), wide("Deskland").as_ptr(), MB_OK | MB_ICONWARNING) };
                 }
@@ -1000,7 +1160,7 @@ fn main() {
                     let q = "\"Khóa với cảnh động\" dùng trình bảo vệ màn hình của Windows, có bật \"khi quay lại, hiện màn hình đăng nhập\".\n\nĐặt Deskland làm trình bảo vệ màn hình (có khóa) ngay bây giờ?";
                     let r = unsafe { MessageBoxW(msg_hwnd, wide(q).as_ptr(), wide("Deskland").as_ptr(), MB_YESNO | MB_ICONQUESTION) };
                     if r == IDYES {
-                        match lock::install_saver(lock_idle_mins) {
+                        match lock::install_saver(app.cfg.lock_idle_mins) {
                             Ok(()) => ready = true,
                             Err(e) => {
                                 log!("Đặt trình bảo vệ màn hình lỗi: {e}");
@@ -1015,6 +1175,10 @@ fn main() {
                 }
             }
             _ => {}
+        }
+        if changed && cmd != CMD_EXIT {
+            save_config(&app.cfg);
+            settings::sync(&app.settings_state());
         }
         // Nếu Windows không bật được trình bảo vệ màn hình thì vẫn khóa thật như người dùng muốn
         if saver_check_at.is_some_and(|t| app.now() >= t) {
