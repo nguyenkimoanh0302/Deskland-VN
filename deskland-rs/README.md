@@ -29,6 +29,10 @@ Mặc định **gdi**: OpenGL vẽ vào FBO trên cửa sổ ẩn → GPU phóng
 và `SwapBuffers` của OpenGL **không** ra bề mặt của cửa sổ đó (đã kiểm bằng `PrintWindow`: chế độ `gl` đen,
 chế độ `gdi` có hình). `--present gl` vẫn giữ để so sánh.
 
+Hai điều bắt buộc để cửa sổ con phân lớp hiện lên màn hình (thiếu là desktop đen dù cửa sổ có hình):
+- Bật `WS_EX_LAYERED` + `SetLayeredWindowAttributes` **sau** `SetParent` (`src/desktop.rs`).
+- Nhúng `app.manifest` khai báo hỗ trợ Windows 8–11 (`build.rs`, như `host/app.manifest` của bản C#).
+
 ## Màn hình khóa - chỉ dùng khóa thật của Windows (`src/lock.rs`)
 Không hook bàn phím, không chặn Win+L, không ghi `DisableLockWorkstation`, không tự kiểm hay lưu mật khẩu / PIN.
 - **Khóa máy ngay** (menu khay) = `LockWorkStation()`. Win+L để nguyên cho Windows.

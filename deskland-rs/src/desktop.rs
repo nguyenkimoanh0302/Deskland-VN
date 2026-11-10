@@ -87,9 +87,6 @@ pub fn attach(hwnd: HWND, screen: RECT) -> Option<Attach> {
             insert_after = def_view;
             z_anchor = def_view;
             mode = "24H2+: cửa sổ con phân lớp của Progman, nằm dưới lớp biểu tượng";
-            let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
-            SetWindowLongW(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED as i32);
-            SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
         } else {
             let mut worker = find_classic_worker();
             if worker.is_null() {
@@ -109,6 +106,15 @@ pub fn attach(hwnd: HWND, screen: RECT) -> Option<Attach> {
         let style = (style & !(WS_POPUP | WS_CAPTION | WS_THICKFRAME)) | WS_CHILD | WS_VISIBLE;
         SetWindowLongW(hwnd, GWL_STYLE, style as i32);
         SetParent(hwnd, parent);
+        if raised {
+            // Bật WS_EX_LAYERED SAU khi đã là cửa sổ con. Nếu bật lúc còn là cửa sổ cấp cao nhất rồi
+            // mới SetParent, Windows vẫn giữ nội dung (PrintWindow thấy hình) nhưng DWM không đưa lên
+            // màn hình -> desktop đen (đã kiểm trên 26300). Tắt rồi bật lại để chắc chắn.
+            let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) & !(WS_EX_LAYERED as i32);
+            SetWindowLongW(hwnd, GWL_EXSTYLE, ex);
+            SetWindowLongW(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED as i32);
+            SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+        }
         let mut pt = POINT { x: screen.left, y: screen.top };
         ScreenToClient(parent, &mut pt);
         SetWindowPos(
