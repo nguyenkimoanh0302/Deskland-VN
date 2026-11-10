@@ -463,8 +463,8 @@
       }
     },
     "mocchau": {
-      "name": "Mộc Châu Plum Blossoms",
-      "desc": "Spring highland meadows ringed by pure white Mộc Châu plum blossom hills, morning mist and drifting white petals",
+      "name": "Plum Blossoms",
+      "desc": "Spring highland meadows ringed by pure white plum blossom hills, morning mist and drifting white petals",
       "groups": [
         "Around icons",
         "Plum Blossoms & Breeze",
@@ -493,7 +493,7 @@
         },
         "mist": {
           "label": "Morning mist",
-          "hint": "Soft Mộc Châu plateau mist rolling over the hills"
+          "hint": "Soft highland mist rolling over the hills"
         },
         "birds": {
           "label": "Highland birds",

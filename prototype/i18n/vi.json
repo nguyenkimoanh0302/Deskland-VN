@@ -464,8 +464,8 @@
       }
     },
     "mocchau": {
-      "name": "Hoa mận Mộc Châu",
-      "desc": "Đồi cỏ xuân màu nước bao bọc bởi rừng hoa mận trắng tinh khôi trên cao nguyên Mộc Châu, sương sớm bảng lảng và cánh hoa bay trong gió",
+      "name": "Hoa mận",
+      "desc": "Đồi cỏ xuân màu nước bao bọc bởi rừng hoa mận trắng tinh khôi, sương sớm bảng lảng và cánh hoa bay trong gió",
       "groups": [
         "Quanh biểu tượng",
         "Hoa mận & Gió xuân",
@@ -493,7 +493,7 @@
           "hint": "Tốc độ cành mận đung đưa và cánh hoa trôi trong gió"
         },
         "mist": {
-          "label": "Sương sớm Mộc Châu",
+          "label": "Sương sớm",
           "hint": "Làn sương mai dịu nhẹ phủ trên thung lũng và rừng hoa mận"
         },
         "birds": {

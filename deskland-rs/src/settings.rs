@@ -60,7 +60,7 @@ const fn p(key: &'static str, label: &'static str, min: f64, max: f64, step: f64
     ParamDef { key, label, min, max, step, def, unit, kind }
 }
 
-// Khoảng giá trị giống bảng điều khiển của bản web (prototype/flat.html, meadow.html)
+// Khoảng giá trị giống bảng điều khiển của bản web (prototype/themes.json)
 pub static BEACH: [ParamDef; 6] = [
     p("sigma", "Khoảng cách bờ", 40.0, 200.0, 1.0, 85.0, "px", Fmt::Num),
     p("warp", "Độ uốn bờ biển", 0.0, 80.0, 1.0, 34.0, "", Fmt::Num),
@@ -69,19 +69,98 @@ pub static BEACH: [ParamDef; 6] = [
     p("kayaks", "Thuyền kayak", 0.0, 4.0, 1.0, 2.0, "chiếc", Fmt::Num),
     p("birds", "Hải âu", 0.0, 8.0, 1.0, 3.0, "con", Fmt::Num),
 ];
+pub static MALDIVES: [ParamDef; 8] = [
+    p("sigma", "Bán kính bãi cát", 40.0, 200.0, 1.0, 85.0, "px", Fmt::Num),
+    p("warp", "Độ uốn bờ cát", 0.0, 80.0, 1.0, 34.0, "", Fmt::Num),
+    p("shoal", "Độ rộng bãi cạn", 0.0, 300.0, 1.0, 120.0, "px", Fmt::Num),
+    p("shallow", "Chuyển sắc xanh ngọc", 120.0, 700.0, 1.0, 280.0, "px", Fmt::Num),
+    p("fishSchools", "Đàn cá", 0.0, 6.0, 1.0, 3.0, "đàn", Fmt::Num),
+    p("turtles", "Rùa biển", 0.0, 4.0, 1.0, 2.0, "con", Fmt::Num),
+    p("kayaks", "Thuyền kayak", 0.0, 4.0, 1.0, 1.0, "chiếc", Fmt::Num),
+    p("birds", "Chim biển", 0.0, 8.0, 1.0, 3.0, "con", Fmt::Num),
+];
 pub static MEADOW: [ParamDef; 3] = [
     p("sigma", "Độ lớn đám mây", 40.0, 200.0, 1.0, 72.0, "px", Fmt::Num),
     p("cover", "Mây trên đồng cỏ", 0.0, 1.0, 0.01, 0.3, "", Fmt::Pct),
     p("flow", "Tốc độ trôi", 0.0, 3.0, 0.05, 1.0, "", Fmt::Mul),
 ];
+pub static LAKE: [ParamDef; 6] = [
+    p("sigma", "Phạm vi bờ cỏ", 40.0, 200.0, 1.0, 82.0, "px", Fmt::Num),
+    p("warp", "Độ uốn bờ hồ", 0.0, 80.0, 1.0, 32.0, "", Fmt::Num),
+    p("shoal", "Bãi sỏi nước nông", 20.0, 240.0, 1.0, 95.0, "px", Fmt::Num),
+    p("depth", "Độ sâu mặt hồ", 100.0, 600.0, 1.0, 240.0, "px", Fmt::Num),
+    p("flow", "Gợn sóng mặt hồ", 0.0, 3.0, 0.05, 1.0, "", Fmt::Mul),
+    p("clouds", "Mây phản chiếu", 0.0, 8.0, 1.0, 4.0, "đám", Fmt::Num),
+];
+pub static SKY: [ParamDef; 8] = [
+    p("time", "Thời điểm (0-3)", 0.0, 3.0, 1.0, 0.0, "", Fmt::Num),
+    p("sigma", "Kích thước đám mây", 40.0, 200.0, 1.0, 74.0, "px", Fmt::Num),
+    p("cover", "Mây trôi tự do", 0.0, 1.0, 0.01, 0.35, "", Fmt::Pct),
+    p("flow", "Tốc độ gió mây", 0.0, 3.0, 0.05, 1.0, "", Fmt::Mul),
+    p("birds", "Đàn chim bay", 0.0, 8.0, 1.0, 3.0, "con", Fmt::Num),
+    p("plane", "Máy bay nhỏ (0-2)", 0.0, 2.0, 1.0, 1.0, "", Fmt::Num),
+    p("moon", "Mặt trăng (0-1)", 0.0, 1.0, 1.0, 1.0, "", Fmt::Num),
+    p("stars", "Mật độ sao đêm", 0.0, 1.0, 0.05, 0.6, "", Fmt::Pct),
+];
+pub static OCEAN: [ParamDef; 6] = [
+    p("sigma", "Kích thước đám mây", 40.0, 200.0, 1.0, 72.0, "px", Fmt::Num),
+    p("cover", "Mây trên biển", 0.0, 1.0, 0.01, 0.3, "", Fmt::Pct),
+    p("flow", "Tốc độ gió biển", 0.0, 3.0, 0.05, 1.0, "", Fmt::Mul),
+    p("boats", "Thuyền buồm", 0.0, 6.0, 1.0, 2.0, "chiếc", Fmt::Num),
+    p("yachts", "Du thuyền", 0.0, 4.0, 1.0, 1.0, "chiếc", Fmt::Num),
+    p("birds", "Chim biển", 0.0, 8.0, 1.0, 3.0, "con", Fmt::Num),
+];
+pub static RAINFOREST: [ParamDef; 7] = [
+    p("sigma", "Độ rộng trảng rêu", 40.0, 200.0, 1.0, 80.0, "px", Fmt::Num),
+    p("warp", "Độ uốn bìa rừng", 0.0, 80.0, 1.0, 32.0, "", Fmt::Num),
+    p("rain", "Mưa & Gợn nước", 0.0, 1.0, 0.05, 0.65, "", Fmt::Pct),
+    p("mist", "Sương mù rừng mưa", 0.0, 1.0, 0.05, 0.4, "", Fmt::Pct),
+    p("wind", "Gió rừng", 0.0, 3.0, 0.05, 1.0, "", Fmt::Mul),
+    p("birds", "Chim nhiệt đới", 0.0, 8.0, 1.0, 3.0, "con", Fmt::Num),
+    p("fireflies", "Đom đóm rừng", 0.0, 15.0, 1.0, 6.0, "con", Fmt::Num),
+];
+pub static MOCCHAU: [ParamDef; 7] = [
+    p("sigma", "Độ rộng đồi cỏ", 40.0, 200.0, 1.0, 80.0, "px", Fmt::Num),
+    p("warp", "Độ uốn sườn đồi", 0.0, 80.0, 1.0, 30.0, "", Fmt::Num),
+    p("bloom", "Độ dày hoa mận", 0.2, 1.0, 0.05, 0.8, "", Fmt::Pct),
+    p("petals", "Cánh hoa bay", 0.0, 1.0, 0.05, 0.55, "", Fmt::Pct),
+    p("wind", "Gió cao nguyên", 0.0, 3.0, 0.05, 1.0, "", Fmt::Mul),
+    p("mist", "Sương sớm", 0.0, 1.0, 0.05, 0.35, "", Fmt::Pct),
+    p("birds", "Chim rừng", 0.0, 8.0, 1.0, 3.0, "con", Fmt::Num),
+];
+pub static TET_SAKURA: [ParamDef; 6] = [
+    p("sigma", "Độ rộng sân xuân", 40.0, 200.0, 1.0, 80.0, "px", Fmt::Num),
+    p("warp", "Độ uốn cành hoa", 0.0, 80.0, 1.0, 30.0, "", Fmt::Num),
+    p("petals", "Cánh đào bay", 0.0, 1.0, 0.05, 0.65, "", Fmt::Pct),
+    p("wind", "Gió xuân", 0.0, 3.0, 0.05, 1.0, "", Fmt::Mul),
+    p("lanterns", "Đèn lồng & Lì xì", 0.0, 8.0, 1.0, 4.0, "cái", Fmt::Num),
+    p("swallows", "Chim én mùa xuân", 0.0, 8.0, 1.0, 3.0, "con", Fmt::Num),
+];
+pub static CAT_HILL: [ParamDef; 4] = [
+    p("cats", "Số lượng mèo", 3.0, 15.0, 1.0, 8.0, "bé", Fmt::Num),
+    p("butterflies", "Bươm bướm vàng", 0.0, 6.0, 1.0, 2.0, "con", Fmt::Num),
+    p("leaves", "Mật độ lá bay", 0.0, 1.0, 0.05, 0.65, "", Fmt::Pct),
+    p("wind", "Sức gió trên đồi", 0.0, 3.0, 0.05, 1.0, "", Fmt::Mul),
+];
 const IDLE_CHOICES: [u32; 8] = [1, 2, 3, 5, 10, 15, 30, 60];
 
 fn defs(theme: &str) -> &'static [ParamDef] {
-    if theme == "meadow" {
-        &MEADOW
-    } else {
-        &BEACH
+    match theme {
+        "meadow" => &MEADOW,
+        "beach-turquoise" => &MALDIVES,
+        "lake" => &LAKE,
+        "sky" => &SKY,
+        "ocean" => &OCEAN,
+        "rainforest" => &RAINFOREST,
+        "mocchau" => &MOCCHAU,
+        "tet-sakura" => &TET_SAKURA,
+        "cat-hill" => &CAT_HILL,
+        _ => &BEACH,
     }
+}
+
+fn has_adaptive(theme: &str) -> bool {
+    matches!(theme, "meadow" | "sky" | "ocean" | "tet-sakura")
 }
 
 fn fmt(d: &ParamDef, v: f64) -> String {
@@ -93,8 +172,7 @@ fn fmt(d: &ParamDef, v: f64) -> String {
     }
 }
 
-const ID_BEACH: usize = 1001;
-const ID_MEADOW: usize = 1002;
+const ID_THEME: usize = 1001;
 const ID_RESEED: usize = 1003;
 const ID_RESET: usize = 1004;
 const ID_ADAPTIVE: usize = 1150;
@@ -129,8 +207,7 @@ struct Ui {
     theme: String,
     rows: Vec<Row>,
     adaptive: HWND,
-    beach: HWND,
-    meadow: HWND,
+    theme_combo: HWND,
     saver_now: HWND,
     saver: HWND,
     idle: HWND,
@@ -207,8 +284,8 @@ impl Ui {
             self.rows.push(Row { def: d, label, bar, value });
             y += 36;
         }
-        if theme == "meadow" {
-            self.adaptive = self.ctl("BUTTON", "Mây ôm quanh biểu tượng (thích ứng)", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 20, y + 2, 400, 24, ID_ADAPTIVE, false);
+        if has_adaptive(theme) {
+            self.adaptive = self.ctl("BUTTON", "Ôm quanh biểu tượng (thích ứng)", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 20, y + 2, 400, 24, ID_ADAPTIVE, false);
         }
     }
 }
@@ -254,7 +331,7 @@ pub fn open(state: &State) {
         let dpi = GetDpiForSystem().max(96);
         let s = dpi as f32 / 96.0;
         let style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-        let mut r = RECT { left: 0, top: 0, right: (540.0 * s) as i32, bottom: (640.0 * s) as i32 };
+        let mut r = RECT { left: 0, top: 0, right: (540.0 * s) as i32, bottom: (720.0 * s) as i32 };
         AdjustWindowRectEx(&mut r, style, 0, 0);
         let (w, h) = (r.right - r.left, r.bottom - r.top);
         let (sw, sh) = (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
@@ -294,8 +371,7 @@ pub fn open(state: &State) {
             theme: String::new(),
             rows: Vec::new(),
             adaptive: std::ptr::null_mut(),
-            beach: std::ptr::null_mut(),
-            meadow: std::ptr::null_mut(),
+            theme_combo: std::ptr::null_mut(),
             saver_now: std::ptr::null_mut(),
             saver: std::ptr::null_mut(),
             idle: std::ptr::null_mut(),
@@ -306,14 +382,16 @@ pub fn open(state: &State) {
         let btn = BS_PUSHBUTTON as u32 | WS_TABSTOP;
         let chk = BS_AUTOCHECKBOX as u32 | WS_TABSTOP;
         ui.ctl("STATIC", "Chủ đề", 0, 20, 16, 300, 24, 0, true);
-        ui.beach = ui.ctl("BUTTON", "Bãi biển", BS_AUTORADIOBUTTON as u32 | WS_GROUP | WS_TABSTOP, 20, 46, 140, 26, ID_BEACH, false);
-        ui.meadow = ui.ctl("BUTTON", "Thảo nguyên", BS_AUTORADIOBUTTON as u32, 168, 46, 160, 26, ID_MEADOW, false);
+        ui.theme_combo = ui.ctl("COMBOBOX", "", CBS_DROPDOWNLIST as u32 | WS_VSCROLL | WS_TABSTOP, 20, 44, 240, 320, ID_THEME, false);
+        for &(_, label, _) in crate::THEMES {
+            SendMessageW(ui.theme_combo, CB_ADDSTRING, 0, wide(label).as_ptr() as LPARAM);
+        }
         ui.ctl("BUTTON", "Đổi cảnh", btn | WS_GROUP, 380, 44, 140, 30, ID_RESEED, false);
         ui.ctl("STATIC", "Thông số chủ đề", 0, 20, 90, 300, 24, 0, true);
         ui.ctl("BUTTON", "Đặt lại mặc định", btn, 380, 86, 140, 30, ID_RESET, false);
         ui.build_rows(&state.theme);
 
-        let y = 124 + 6 * 36 + 12; // dưới hàng thông số dài nhất (Bãi biển: 6 hàng)
+        let y = 124 + 8 * 36 + 32; // dưới hàng thông số dài nhất (8 hàng + adaptive)
         ui.ctl("STATIC", "Màn hình khóa - chỉ dùng khóa thật của Windows", 0, 20, y, 500, 24, 0, true);
         ui.ctl("BUTTON", "Khóa máy ngay", btn, 20, y + 32, 160, 30, ID_LOCK, false);
         ui.saver_now = ui.ctl("BUTTON", "Khóa với cảnh động", btn, 190, y + 32, 240, 30, ID_SAVER_NOW, false);
@@ -354,8 +432,8 @@ pub fn sync(state: &State) {
             ui.build_rows(&state.theme);
         }
         unsafe {
-            set_check(ui.beach, state.theme != "meadow");
-            set_check(ui.meadow, state.theme == "meadow");
+            let tidx = crate::THEMES.iter().position(|&(tid, _, _)| tid == state.theme).unwrap_or(1);
+            SendMessageW(ui.theme_combo, CB_SETCURSEL, tidx, 0);
             for r in &ui.rows {
                 let v = state.params.get(r.def.key).and_then(|x| x.as_f64()).unwrap_or(r.def.def).clamp(r.def.min, r.def.max);
                 let pos = ((v - r.def.min) / r.def.step).round() as isize;
@@ -380,8 +458,12 @@ unsafe extern "system" fn proc_(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESUL
             let (id, code) = (w & 0xFFFF, (w >> 16) & 0xFFFF);
             let ctl = l as HWND;
             match (id, code as u32) {
-                (ID_BEACH, BN_CLICKED) => push(Action::Theme("beach")),
-                (ID_MEADOW, BN_CLICKED) => push(Action::Theme("meadow")),
+                (ID_THEME, CBN_SELCHANGE) => {
+                    let i = SendMessageW(ctl, CB_GETCURSEL, 0, 0);
+                    if let Some(&(tid, _, _)) = crate::THEMES.get(i as usize) {
+                        push(Action::Theme(tid));
+                    }
+                }
                 (ID_RESEED, BN_CLICKED) => push(Action::Reseed),
                 (ID_RESET, BN_CLICKED) => push(Action::Reset),
                 (ID_ADAPTIVE, BN_CLICKED) => push(Action::Param("adaptive", if checked(ctl) { 1.0 } else { 0.0 })),

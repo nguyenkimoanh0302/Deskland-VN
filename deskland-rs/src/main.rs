@@ -11,7 +11,15 @@ mod settings;
 mod web;
 mod themes {
     pub mod beach;
+    pub mod cat_hill;
+    pub mod lake;
+    pub mod maldives;
     pub mod meadow;
+    pub mod mocchau;
+    pub mod ocean;
+    pub mod rainforest;
+    pub mod sky;
+    pub mod tet_sakura;
 }
 mod wgl;
 
@@ -58,20 +66,50 @@ const MSG_CLASS: &str = "DesklandRsMsg";
 const WALL_CLASS: &str = "DesklandRsWall";
 const SAVER_CLASS: &str = "DesklandRsSaver";
 const WM_TRAY: u32 = WM_APP + 1;
-const CMD_BEACH: usize = 101;
-const CMD_MEADOW: usize = 102;
-const CMD_LOCK: usize = 110;
-const CMD_SAVER: usize = 111;
-const CMD_SYNC: usize = 112;
-const CMD_WINL: usize = 113;
-const CMD_SAVER_NOW: usize = 114;
-const CMD_SETTINGS: usize = 115;
+const CMD_LOCK: usize = 120;
+const CMD_SAVER: usize = 121;
+const CMD_SYNC: usize = 122;
+const CMD_WINL: usize = 123;
+const CMD_SAVER_NOW: usize = 124;
+const CMD_SETTINGS: usize = 125;
 const WM_OPEN_SETTINGS: u32 = WM_APP + 2;
 const CMD_EXIT: usize = 199;
 const HOTKEY_SAVER: i32 = 1;
 const WM_WTSSESSION_CHANGE_: u32 = 0x02B1;
 const WTS_SESSION_LOCK_: usize = 0x7;
 const WTS_SESSION_UNLOCK_: usize = 0x8;
+
+pub const THEMES: &[(&str, &str, usize)] = &[
+    ("meadow", "Thảo nguyên", 101),
+    ("beach", "Bãi biển", 102),
+    ("beach-turquoise", "Đảo Maldives", 103),
+    ("lake", "Hồ nước", 104),
+    ("sky", "Bầu trời", 105),
+    ("ocean", "Đại dương", 106),
+    ("rainforest", "Rừng mưa nhiệt đới", 107),
+    ("mocchau", "Hoa mận", 108),
+    ("tet-sakura", "Hoa anh đào Tết", 109),
+    ("cat-hill", "Đồi mèo nắng ấm", 110),
+];
+
+pub fn canonical_theme(id: &str) -> Option<&'static str> {
+    match id {
+        "maldives" => Some("beach-turquoise"),
+        "plum-blossoms" | "plum_blossoms" | "plum" => Some("mocchau"),
+        "tet_sakura" => Some("tet-sakura"),
+        "cat_hill" => Some("cat-hill"),
+        other => THEMES.iter().find(|&&(tid, _, _)| tid == other).map(|&(tid, _, _)| tid),
+    }
+}
+
+pub fn theme_cmd(id: &str) -> usize {
+    let cid = canonical_theme(id).unwrap_or("beach");
+    THEMES.iter().find(|&&(tid, _, _)| tid == cid).map(|&(_, _, cmd)| cmd).unwrap_or(102)
+}
+
+pub fn cmd_theme(cmd: usize) -> Option<&'static str> {
+    THEMES.iter().find(|&&(_, _, c)| c == cmd).map(|&(tid, _, _)| tid)
+}
 
 thread_local! {
     static PENDING_CMD: Cell<usize> = const { Cell::new(0) };
@@ -82,7 +120,7 @@ thread_local! {
     static PENDING_THEME_SYNC: Cell<bool> = const { Cell::new(false) };
     static SAVER_START: Cell<Option<Instant>> = const { Cell::new(None) };
     static SAVER_MOUSE: Cell<Option<(i32, i32)>> = const { Cell::new(None) };
-    static CURRENT_THEME: Cell<usize> = const { Cell::new(CMD_BEACH) };
+    static CURRENT_THEME: Cell<usize> = const { Cell::new(102) };
     /// Phiên Windows đang khóa (WM_WTSSESSION_CHANGE): không ai thấy desktop -> ngừng vẽ.
     static SESSION_LOCKED: Cell<bool> = const { Cell::new(false) };
     static HOTKEY_OK: Cell<bool> = const { Cell::new(false) };
@@ -127,8 +165,9 @@ unsafe extern "system" fn msg_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRE
                 AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
                 let cur = CURRENT_THEME.with(|c| c.get());
                 let flag = |id: usize| if cur == id { MF_STRING | MF_CHECKED } else { MF_STRING };
-                AppendMenuW(menu, flag(CMD_BEACH), CMD_BEACH, wide("Bãi biển").as_ptr());
-                AppendMenuW(menu, flag(CMD_MEADOW), CMD_MEADOW, wide("Thảo nguyên").as_ptr());
+                for &(_, label, cmd_id) in THEMES {
+                    AppendMenuW(menu, flag(cmd_id), cmd_id, wide(label).as_ptr());
+                }
                 AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
                 // Màn hình khóa: chỉ dùng khóa thật của Windows
                 AppendMenuW(menu, MF_STRING, CMD_LOCK, wide("Khóa máy ngay (khóa Windows)").as_ptr());
@@ -280,11 +319,14 @@ fn load_config(cli_theme: Option<String>) -> Config {
     // Ngôn ngữ: bản Rust chưa lưu thì theo lựa chọn ở bản C#
     let lang = root.get("lang").or_else(|| csv.as_ref().and_then(|c| c.get("lang"))).and_then(|v| v.as_str()).unwrap_or("auto").to_string();
     let saved = root.get("theme").and_then(|v| v.as_str()).unwrap_or("beach").to_string();
-    let mut theme = cli_theme.unwrap_or(saved);
-    if theme != "beach" && theme != "meadow" {
-        log!("Chủ đề '{theme}' chưa được port sang Rust, dùng 'beach'");
-        theme = "beach".into();
-    }
+    let raw_theme = cli_theme.unwrap_or(saved);
+    let theme = match canonical_theme(&raw_theme) {
+        Some(t) => t.to_string(),
+        None => {
+            log!("Chủ đề '{raw_theme}' không hợp lệ, dùng 'beach'");
+            "beach".into()
+        }
+    };
     Config {
         theme,
         params: root.get("params").cloned().unwrap_or(serde_json::Value::Null),
@@ -344,7 +386,18 @@ fn web_init(app: &App) -> serde_json::Value {
             "realLock": true,
             "hotkey": HOTKEY_OK.with(|c| c.get()),
             "share": false,
-            "themes": ["beach", "meadow"],
+            "themes": [
+                "meadow",
+                "beach",
+                "beach-turquoise",
+                "lake",
+                "sky",
+                "ocean",
+                "rainforest",
+                "mocchau",
+                "tet-sakura",
+                "cat-hill"
+            ],
             // Chưa port: cây dừa, cậu bé, mèo -> ẩn thanh trượt, xem trước cũng tắt cho giống desktop
             "hide": ["palms", "showBoy", "showCat"],
             "force": { "palms": 0, "showBoy": 0, "showCat": 0 },
@@ -484,6 +537,14 @@ impl App {
         let rs = 0x5EED_0000 + idx as u64 * 7919 + self.start.elapsed().as_nanos() as u64;
         match self.cfg.theme.as_str() {
             "meadow" => Box::new(themes::meadow::Meadow::new(gl, w, h, buf_w, buf_h, scale, seed, themes::meadow::Params::from_json(p), rs, now)),
+            "beach-turquoise" => Box::new(themes::maldives::Maldives::new(gl, w, h, buf_w, buf_h, scale, seed, themes::maldives::Params::from_json(p), rs, now)),
+            "lake" => Box::new(themes::lake::Lake::new(gl, w, h, buf_w, buf_h, scale, seed, themes::lake::Params::from_json(p), rs, now)),
+            "sky" => Box::new(themes::sky::Sky::new(gl, w, h, buf_w, buf_h, scale, seed, themes::sky::Params::from_json(p), rs, now)),
+            "ocean" => Box::new(themes::ocean::Ocean::new(gl, w, h, buf_w, buf_h, scale, seed, themes::ocean::Params::from_json(p), rs, now)),
+            "rainforest" => Box::new(themes::rainforest::Rainforest::new(gl, w, h, buf_w, buf_h, scale, seed, themes::rainforest::Params::from_json(p), rs, now)),
+            "mocchau" => Box::new(themes::mocchau::PlumBlossoms::new(gl, w, h, buf_w, buf_h, scale, seed, themes::mocchau::Params::from_json(p), rs, now)),
+            "tet-sakura" => Box::new(themes::tet_sakura::TetSakura::new(gl, w, h, buf_w, buf_h, scale, seed, themes::tet_sakura::Params::from_json(p), rs, now)),
+            "cat-hill" => Box::new(themes::cat_hill::CatHill::new(gl, w, h, buf_w, buf_h, scale, seed, themes::cat_hill::Params::from_json(p), rs, now)),
             _ => Box::new(themes::beach::Beach::new(gl, w, h, buf_w, buf_h, scale, seed, themes::beach::Params::from_json(p), rs, now)),
         }
     }
@@ -493,7 +554,18 @@ impl App {
         let gl = &ctx.gl;
         let seed = self.seed();
         let noise = engine::Noise { seed };
-        let frag = if self.cfg.theme == "meadow" { themes::meadow::FRAG } else { themes::beach::FRAG };
+        let frag = match self.cfg.theme.as_str() {
+            "meadow" => themes::meadow::FRAG,
+            "beach-turquoise" => themes::maldives::FRAG,
+            "lake" => themes::lake::FRAG,
+            "sky" => themes::sky::FRAG,
+            "ocean" => themes::ocean::FRAG,
+            "rainforest" => themes::rainforest::FRAG,
+            "mocchau" => themes::mocchau::FRAG,
+            "tet-sakura" => themes::tet_sakura::FRAG,
+            "cat-hill" => themes::cat_hill::FRAG,
+            _ => themes::beach::FRAG,
+        };
         let t0 = Instant::now();
         let prog = Prog::new(gl, frag)?;
         log!("Biên dịch shader '{}' mất {:.0} ms", self.cfg.theme, t0.elapsed().as_secs_f64() * 1000.0);
@@ -995,7 +1067,7 @@ fn main() {
         if saver { " (trình bảo vệ màn hình)" } else { "" },
         cfg.theme
     );
-    CURRENT_THEME.with(|c| c.set(if cfg.theme == "meadow" { CMD_MEADOW } else { CMD_BEACH }));
+    CURRENT_THEME.with(|c| c.set(theme_cmd(&cfg.theme)));
     let lock_sync = cfg.lock_sync;
     LOCK_SYNC.with(|c| c.set(lock_sync));
 
@@ -1132,7 +1204,7 @@ fn main() {
             match a {
                 Action::Theme(t) => {
                     app.switch_theme(t);
-                    CURRENT_THEME.with(|c| c.set(if t == "meadow" { CMD_MEADOW } else { CMD_BEACH }));
+                    CURRENT_THEME.with(|c| c.set(theme_cmd(t)));
                 }
                 Action::Param(k, v) => {
                     app.ensure_seed();
@@ -1236,12 +1308,11 @@ fn main() {
                 }
                 "theme" => {
                     let id = s_("id");
-                    if id == "beach" || id == "meadow" {
-                        let id: &'static str = if id == "meadow" { "meadow" } else { "beach" };
-                        app.switch_theme(id);
-                        CURRENT_THEME.with(|c| c.set(if id == "meadow" { CMD_MEADOW } else { CMD_BEACH }));
+                    if let Some(tid) = canonical_theme(&id) {
+                        app.switch_theme(tid);
+                        CURRENT_THEME.with(|c| c.set(theme_cmd(tid)));
                     } else {
-                        log!("Chủ đề '{id}' chưa port sang Rust");
+                        log!("Chủ đề '{id}' chưa hỗ trợ");
                         web::post(&serde_json::json!({ "t": "themeChanged", "id": app.cfg.theme }).to_string());
                     }
                     web_changed = true;
@@ -1296,57 +1367,54 @@ fn main() {
             save_config(&app.cfg);
             settings::sync(&app.settings_state());
         }
-        match cmd {
-            CMD_EXIT => break,
-            CMD_BEACH => {
-                app.switch_theme("beach");
-                CURRENT_THEME.with(|c| c.set(CMD_BEACH));
-            }
-            CMD_MEADOW => {
-                app.switch_theme("meadow");
-                CURRENT_THEME.with(|c| c.set(CMD_MEADOW));
-            }
-            CMD_LOCK => lock::lock_now(),
-            CMD_SAVER => {
-                if lock::saver_installed() {
-                    lock::uninstall_saver();
-                } else if let Err(e) = lock::install_saver(app.cfg.lock_idle_mins) {
-                    log!("Đặt trình bảo vệ màn hình lỗi: {e}");
-                    unsafe { MessageBoxW(msg_hwnd, wide(&e).as_ptr(), wide("Deskland").as_ptr(), MB_OK | MB_ICONWARNING) };
+        if let Some(tid) = cmd_theme(cmd) {
+            app.switch_theme(tid);
+            CURRENT_THEME.with(|c| c.set(cmd));
+        } else {
+            match cmd {
+                CMD_EXIT => break,
+                CMD_LOCK => lock::lock_now(),
+                CMD_SAVER => {
+                    if lock::saver_installed() {
+                        lock::uninstall_saver();
+                    } else if let Err(e) = lock::install_saver(app.cfg.lock_idle_mins) {
+                        log!("Đặt trình bảo vệ màn hình lỗi: {e}");
+                        unsafe { MessageBoxW(msg_hwnd, wide(&e).as_ptr(), wide("Deskland").as_ptr(), MB_OK | MB_ICONWARNING) };
+                    }
                 }
-            }
-            CMD_SYNC => {
-                let on = !LOCK_SYNC.with(|c| c.get());
-                LOCK_SYNC.with(|c| c.set(on));
-                log!("Đồng bộ ảnh màn khóa Windows: {}", if on { "bật" } else { "tắt" });
-                if on {
-                    app.sync_lock_image();
+                CMD_SYNC => {
+                    let on = !LOCK_SYNC.with(|c| c.get());
+                    LOCK_SYNC.with(|c| c.set(on));
+                    log!("Đồng bộ ảnh màn khóa Windows: {}", if on { "bật" } else { "tắt" });
+                    if on {
+                        app.sync_lock_image();
+                    }
                 }
-            }
-            CMD_WINL => {
-                lock::restore_winl();
-            }
-            CMD_SAVER_NOW => {
-                let mut ready = lock::saver_installed() && lock::saver_secure();
-                if !ready {
-                    let q = "\"Khóa với cảnh động\" dùng trình bảo vệ màn hình của Windows, có bật \"khi quay lại, hiện màn hình đăng nhập\".\n\nĐặt Deskland làm trình bảo vệ màn hình (có khóa) ngay bây giờ?";
-                    let r = unsafe { MessageBoxW(msg_hwnd, wide(q).as_ptr(), wide("Deskland").as_ptr(), MB_YESNO | MB_ICONQUESTION) };
-                    if r == IDYES {
-                        match lock::install_saver(app.cfg.lock_idle_mins) {
-                            Ok(()) => ready = true,
-                            Err(e) => {
-                                log!("Đặt trình bảo vệ màn hình lỗi: {e}");
-                                unsafe { MessageBoxW(msg_hwnd, wide(&e).as_ptr(), wide("Deskland").as_ptr(), MB_OK | MB_ICONWARNING) };
+                CMD_WINL => {
+                    lock::restore_winl();
+                }
+                CMD_SAVER_NOW => {
+                    let mut ready = lock::saver_installed() && lock::saver_secure();
+                    if !ready {
+                        let q = "\"Khóa với cảnh động\" dùng trình bảo vệ màn hình của Windows, có bật \"khi quay lại, hiện màn hình đăng nhập\".\n\nĐặt Deskland làm trình bảo vệ màn hình (có khóa) ngay bây giờ?";
+                        let r = unsafe { MessageBoxW(msg_hwnd, wide(q).as_ptr(), wide("Deskland").as_ptr(), MB_YESNO | MB_ICONQUESTION) };
+                        if r == IDYES {
+                            match lock::install_saver(app.cfg.lock_idle_mins) {
+                                Ok(()) => ready = true,
+                                Err(e) => {
+                                    log!("Đặt trình bảo vệ màn hình lỗi: {e}");
+                                    unsafe { MessageBoxW(msg_hwnd, wide(&e).as_ptr(), wide("Deskland").as_ptr(), MB_OK | MB_ICONWARNING) };
+                                }
                             }
                         }
                     }
+                    if ready {
+                        lock::start_secure_saver(msg_hwnd);
+                        saver_check_at = Some(app.now() + 2_500.0);
+                    }
                 }
-                if ready {
-                    lock::start_secure_saver(msg_hwnd);
-                    saver_check_at = Some(app.now() + 2_500.0);
-                }
+                _ => {}
             }
-            _ => {}
         }
         if changed && cmd != CMD_EXIT {
             save_config(&app.cfg);
