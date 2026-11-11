@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deskland · Mèo con</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #b6da89; }
+  #art { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  #ghosts { position: fixed; inset: 0; pointer-events: none; display: none; }
+  body.preview #ghosts { display: block; }
+  .ghost { position: absolute; }
+  .ghost i { position: absolute; left: 50%; top: 4px; width: 48px; height: 48px; margin-left: -24px; border-radius: 9px;
+    background: rgba(255,255,255,.88); box-shadow: 3px 6px 8px rgba(40,60,90,.28); }
+  .ghost b { position: absolute; left: 14%; right: 14%; top: 60px; height: 10px; border-radius: 5px; background: rgba(255,255,255,.75); }
+</style>
+</head>
+<body>
+<canvas id="art"></canvas>
+<div id="ghosts"></div>
+<script src="cats-scenery.js"></script>
+<script src="cats-meadow.js"></script>
+<script src="cats-nature.js"></script>
+<script src="cats-wind.js"></script>
+<script src="cats-draw.js"></script>
+<script src="cats-poses.js"></script>
+<script src="cats-behavior.js"></script>
+<script src="cats-interact.js"></script>
+<script>
+'use strict';
+// Chủ đề Mèo con: nối nền tĩnh (cats-scenery.js, cats-meadow.js), cây/đá (cats-nature.js), gió + lá + bướm
+// (cats-wind.js), hành vi (cats-behavior.js) và hình vẽ mèo (cats-draw.js, cats-poses.js) với trình chủ Windows.
+// Các biến toàn cục bên dưới cũng được share.js dùng khi xuất ảnh/video.
+
+const CELL_W = 76, CELL_H = 100, GRID_X0 = 4, GRID_Y0 = 6, TASKBAR = 48;
+const FRAME_MS = 40;                 // ~25 khung hình/giây là đủ mượt cho mèo đi bộ
+const RENDER_SCALE_MAX = 1;
+const PREVIEW_SCALE = 0.5;
+const DEMO_ICON_COUNT = 7;
+const MAX_CATS = 14;
+
+const QS = new URLSearchParams(location.search);
+const WALL = QS.has('wallpaper');
+const PREVIEW = QS.has('preview');
+const P = { mound: 28, cats: 8, speed: 1, naps: 0.35, sun: 0.6, flowers: 0.6, bushes: 4, wind: 1, cap30: true };
+const DEFAULTS = Object.assign({}, P);
+const SLIDER_KEYS = ['mound', 'cats', 'speed', 'naps', 'sun', 'flowers', 'bushes', 'wind'];
+
+const cv = document.getElementById('art');
+const ctx = cv.getContext('2d');
+const meadow = createCatMeadow();
+const nature = createCatNature();
+const wind = createCatWind();
+const interact = createCatInteract();
+let W = 0, H = 0, seed = (Math.random() * 1e6) | 0;
+let icons = [], cats = [], sceneVersion = 0;
+let paused = false, frameN = 0, lastT = 0;
+
+const world = () => ({
+  W, top: meadowHorizon(H) + 70, floor: H - TASKBAR - CAT_MARGIN_BOTTOM,
+  obstacles: icons.concat(nature.obstacles), cats, rand: Math.random,
+});
+const tune = () => ({ speed: P.speed, naps: P.naps });
+const interactScene = () => ({ cats, nature, wind, world: world(), tune: tune(), H });
+
+function coatOrder() {
+  const rand = catMakeRandom(seed), order = CAT_COATS.slice();
+  for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+  return order;
+}
+
+function syncCatCount() {
+  const want = Math.max(0, Math.min(MAX_CATS, Math.round(P.cats))), coats = coatOrder();
+  while (cats.length > want) cats.pop();
+  while (cats.length < want) cats.push(createCat(world(), coats[cats.length % coats.length]));
+}
+
+// share.js gọi commit() sau khi dời biểu tượng khi quay video, nên tên hàm phải giữ nguyên.
+function commit() {
+  sceneVersion++;
+  nature.layout({ W, H, seed, icons, taskbar: TASKBAR, count: P.bushes, mound: P.mound, version: sceneVersion });
+  const w = world(), t = tune();
+  for (const cat of cats) catAdaptToIcons(cat, w, t);
+}
+
+function reseed(value) {
+  seed = value;
+  cats = [];
+  syncCatCount();
+  sceneVersion++;
+}
+
+function resize() {
+  W = innerWidth; H = innerHeight;
+  const scale = PREVIEW ? PREVIEW_SCALE : Math.min(devicePixelRatio || 1, RENDER_SCALE_MAX);
+  cv.width = Math.round(W * scale); cv.height = Math.round(H * scale); cv._scale = scale;
+  commit();
+}
+
+function draw() {
+  // Cửa sổ hình nền có thể tạm có kích thước 0 khi đang khởi tạo hoặc bị ẩn; bỏ qua khung hình đó.
+  if (!cv.width || !cv.height) return;
+  const s = cv._scale;
+  meadow.update({ W, H, pixelW: cv.width, pixelH: cv.height, scale: s, seed, icons, taskbar: TASKBAR,
+    mound: P.mound, sun: P.sun, flowers: P.flowers, version: sceneVersion });
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(meadow.canvas, 0, 0);
+  ctx.setTransform(s, 0, 0, s, 0, 0);
+  wind.drawLanded(ctx);
+  // Vẽ cây/đá và mèo theo thứ tự chân từ trên xuống để mèo có thể đi khuất sau tán lá.
+  const gust = wind.windOf(P.wind);
+  const scene = nature.items.map(item => ({ y: item.y, draw: () => nature.drawItem(ctx, item, gust, wind.time) }))
+    .concat(cats.map(cat => ({ y: cat.y, draw: () => drawCat(ctx, cat) })));
+  if (interact.yarn) scene.push({ y: interact.yarn.y, draw: () => interact.drawYarn(ctx) });
+  for (const entry of scene.sort((a, b) => a.y - b.y)) entry.draw();
+  wind.drawAir(ctx, P.wind);
+  interact.drawRings(ctx);
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (paused) { lastT = 0; return; }
+  if (P.cap30 && now - lastT < FRAME_MS) return;
+  const dt = lastT ? Math.min((now - lastT) / 1000, 0.1) : 0.03;
+  lastT = now;
+  wind.step(dt, { W, H, taskbar: TASKBAR, strength: P.wind, canopies: nature.canopies });
+  nature.step(dt);
+  interact.step(dt, interactScene());
+  const w = world(), t = tune();
+  for (const cat of cats) stepCat(cat, dt, w, t);
+  draw(now);
+  frameN++;
+}
+
+function applySettings(v) {
+  if (typeof v.seed === 'number' && v.seed !== seed) reseed(v.seed);
+  for (const k of SLIDER_KEYS) if (typeof v[k] === 'number') P[k] = v[k];
+  syncCatCount();
+  commit();
+}
+
+function drawGhosts() {
+  document.getElementById('ghosts').innerHTML = icons.map(ic =>
+    `<div class="ghost" style="left:${ic.x}px;top:${ic.y}px;width:${ic.w}px;height:${ic.h}px"><i></i><b></b></div>`).join('');
+}
+
+// Mở trực tiếp trên trình duyệt: dựng vài biểu tượng mẫu ở cột trái giống màn hình nền thật.
+function startDemoMode() {
+  document.body.classList.add('preview');
+  icons = Array.from({ length: DEMO_ICON_COUNT }, (_, i) => ({
+    x: GRID_X0 + Math.floor(i / 5) * CELL_W, y: GRID_Y0 + (i % 5) * CELL_H, w: CELL_W - 4, h: CELL_H - 8,
+  }));
+  drawGhosts();
+  commit();
+}
+
+function startHostedMode() {
+  if (PREVIEW) document.body.classList.add('preview');
+  const handle = m => {
+    if (m.t === 'pause') { paused = !!m.v; return; }
+    if (m.t === 'settings') { applySettings(m.v || {}); return; }
+    if (m.t === 'reset') { applySettings(Object.assign({}, DEFAULTS, m.v || {})); return; }
+    if (m.t !== 'icons') return;
+    const k = window.devicePixelRatio || 1;
+    icons = m.vis ? m.r.map(([l, t, r, b]) => ({ x: l / k, y: t / k, w: (r - l) / k, h: (b - t) / k })) : [];
+    if (PREVIEW) drawGhosts();
+    commit();
+  };
+  if (PREVIEW) {
+    addEventListener('message', ev => { if (ev.source === parent) handle(typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data); });
+    parent.postMessage(JSON.stringify({ t: 'ready' }), '*');
+    return;
+  }
+  const host = window.chrome && window.chrome.webview;
+  if (!host) return;
+  host.addEventListener('message', ev => handle(JSON.parse(ev.data)));
+  host.postMessage('ready');
+}
+
+// Bấm chuột vào cảnh (trình duyệt, khung xem trước): vuốt ve mèo, rung cây, thả cuộn len, gọi bướm.
+cv.addEventListener('pointerdown', e => interact.click(e.clientX, e.clientY, interactScene()));
+
+let resizeTimer = 0;
+addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(resize, 100); });
+
+resize();
+syncCatCount();
+if (WALL || PREVIEW) startHostedMode(); else startDemoMode();
+requestAnimationFrame(frame);
+</script>
+<script src="share.js"></script>
+</body>
+</html>

@@ -13,6 +13,7 @@ mod themes {
     pub mod aquarium;
     pub mod beach;
     pub mod cat_hill;
+    pub mod cats;
     pub mod commute;
     pub mod lake;
     pub mod maldives;
@@ -100,6 +101,7 @@ pub const THEMES: &[(&str, &str, usize)] = &[
     ("aquarium", "Bể cá vàng", 113),
     ("commute", "Chuyến xe chiều", 114),
     ("summer-porch", "Hiên nhà ngày hạ", 115),
+    ("cats", "Mèo con trên đồi", 116),
 ];
 
 pub fn canonical_theme(id: &str) -> Option<&'static str> {
@@ -112,6 +114,7 @@ pub fn canonical_theme(id: &str) -> Option<&'static str> {
         "fish" | "fishing" | "goldfish" | "fishbowl" => Some("aquarium"),
         "bus" | "evening-bus" | "commute-bus" => Some("commute"),
         "porch" | "corgi" | "corgi-porch" | "veranda" | "summer_porch" => Some("summer-porch"),
+        "kittens" | "hillside-kittens" => Some("cats"),
         other => THEMES.iter().find(|&&(tid, _, _)| tid == other).map(|&(tid, _, _)| tid),
     }
 }
@@ -473,7 +476,8 @@ fn web_init(app: &App) -> serde_json::Value {
                 "stadium",
                 "aquarium",
                 "commute",
-                "summer-porch"
+                "summer-porch",
+                "cats"
             ],
             // Chưa port: cây dừa, cậu bé, mèo -> ẩn thanh trượt, xem trước cũng tắt cho giống desktop
             "hide": ["palms", "showBoy", "showCat"],
@@ -629,6 +633,7 @@ impl App {
             "commute" => Box::new(themes::commute::Commute::new(gl, w, h, buf_w, buf_h, scale, seed, themes::commute::Params::from_json(p), rs, now)),
             "aquarium" => Box::new(themes::aquarium::Aquarium::new(gl, w, h, buf_w, buf_h, scale, seed, themes::aquarium::Params::from_json(p), rs, now)),
             "summer-porch" => Box::new(themes::summer_porch::SummerPorch::new(gl, w, h, buf_w, buf_h, scale, seed, themes::summer_porch::Params::from_json(p), rs, now)),
+            "cats" => Box::new(themes::cats::Cats::new(gl, w, h, buf_w, buf_h, scale, seed, themes::cats::Params::from_json(p), rs, now)),
             _ => Box::new(themes::beach::Beach::new(gl, w, h, buf_w, buf_h, scale, seed, themes::beach::Params::from_json(p), rs, now)),
         }
     }
@@ -652,6 +657,7 @@ impl App {
             "aquarium" => themes::aquarium::FRAG,
             "commute" => themes::commute::FRAG,
             "summer-porch" => themes::summer_porch::FRAG,
+            "cats" => themes::cats::FRAG,
             _ => themes::beach::FRAG,
         };
         let t0 = Instant::now();

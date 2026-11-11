@@ -30,7 +30,7 @@ Phiên bản viết lại hoàn toàn bằng **Rust thuần (1 tiến trình duy
 
 ---
 
-## Danh sách 14 Chủ đề & Cơ chế Tương tác Chuột
+## Danh sách 15 Chủ đề & Cơ chế Tương tác Chuột
 
 | # | Mã (`--theme`) | Bí danh (Alias) | Tên hiển thị | Mô tả cảnh & Tương tác khi Click vùng trống Desktop |
 |---:|---|---|---|---|
@@ -48,6 +48,7 @@ Phiên bản viết lại hoàn toàn bằng **Rust thuần (1 tiến trình duy
 | 12 | `aquarium` | `fish`, `fishing`, `goldfish`, `fishbowl` | **Bể cá vàng** *(Mới)* | Góc nhìn ngang qua bể kính ngập nắng với rạn cát vàng ươm uốn ôm biểu tượng, rong rêu đung đưa, bọt khí và đàn cá vàng tung tăng. **Click:** Bấm vùng nước để thả dây câu cá vàng (canh lúc phao giật mạnh hiện dấu `!` rồi click để kéo cá lên); bấm vào rạn cát để tung làn bụi cát lấp lánh. |
 | 13 | `commute` | `bus`, `evening-bus`, `commute-bus` | **Chuyến xe chiều** *(Mới)* | Phong cảnh hoạt hình ven sông theo giờ thực, cầu vòm, phố lên đèn và xe buýt vàng chạy qua đồng lau. **Click:** Bấm mặt đường gọi xe dừng đón, bấm lên trời gọi chim / sao băng, bấm đồng cỏ tạo luồng gió thổi rạp lau. |
 | 14 | `summer-porch` | `porch`, `corgi`, `corgi-porch`, `veranda` | **Hiên nhà ngày hạ** *(Mới)* | Hiên gỗ mái ngói âm dương kiểu Ghibli, đàn Corgi ngủ trưa lăn mình trước quạt bàn cổ điển, đĩa dưa hấu đỏ, sách mở và luống vườn xanh ôm quanh icon. **Click:** Bấm Corgi để gãi bụng bắn tim hồng, bấm quạt bàn đổi nấc gió, gõ chuông gió đồng, cắn dưa hấu hoặc thả bướm / đom đóm trên sân. |
+| 15 | `cats` | `kittens`, `hillside-kittens` | **Mèo con trên đồi** *(Mới)* | Đồi cỏ trời xanh mây trắng, cây lá đung đưa, lá bay, bướm vàng và đàn mèo mập chân ngắn (10 bộ lông) đi dạo, liếm lông, ngủ cuộn tròn / nằm nghiêng / nằm ngửa thở phập phồng. Vẽ bằng **tiny-skia trên CPU** (`src/themes/cats/`, mỗi file `.rs` ứng với một file `prototype/cats-*.js`) thay vì shader, để giống hệt bản Canvas 2D. **Click:** Bấm mèo để vuốt ve (nhảy cẫng, chùm tim, mắt cười); bấm cây / lùm cây để rung rụng lá; bấm cỏ thả **cuộn len** cho 3 chú mèo gần nhất chạy tới vờn, khều lăn đi rồi đuổi theo; bấm trời gọi bướm. |
 
 > **Bật / tắt tương tác chuột:** Có thể bật hoặc tắt bất kỳ lúc nào ngay tại menu chuột phải ở khay hệ thống (**Tương tác chuột trên màn hình nền**) hoặc trong cửa sổ **Cài đặt**.
 
@@ -56,6 +57,17 @@ Phiên bản viết lại hoàn toàn bằng **Rust thuần (1 tiến trình duy
 ## Biên dịch & Chạy
 
 Yêu cầu: **Rust toolchain (`rustup`, MSVC target `x86_64-pc-windows-msvc`)** và **Windows 10/11 SDK** (có sẵn khi cài Visual Studio Build Tools C++). Không cần kết nối mạng nếu cache Cargo đã sẵn sàng; trình biên dịch tự tìm `rc.exe` của Windows SDK để nhúng icon và manifest.
+
+**Máy không cài được MSVC Build Tools** (cần quyền quản trị): build bằng bộ công cụ GNU của Rust. `build.rs` nhúng
+`app.manifest` bằng crate `embed-manifest` và biên dịch `app.rc` (icon, VERSIONINFO) bằng `windres`; cần MinGW trong
+`PATH` (ví dụ `winget install BrechtSanders.WinLibs.POSIX.UCRT --scope user`), rồi chép `WebView2Loader.dll`
+(trong `target/release/build/webview2-com-sys-*/out/x64/`) ra cạnh exe để mở được cửa sổ Cài đặt. Cảnh báo
+`.rsrc merge failure: multiple non-default manifests` là vô hại: manifest của dự án vẫn là tài nguyên số 1.
+
+```powershell
+rustup toolchain install stable-x86_64-pc-windows-gnu
+cargo +stable-x86_64-pc-windows-gnu build --release
+```
 
 ```powershell
 cd deskland-rs

@@ -734,6 +734,52 @@
           "hint": "Neatly trimmed garden borders or organic hand-drawn curves"
         }
       }
+    },
+    "cats": {
+      "name": "Hillside Kittens",
+      "desc": "A bright green hilltop under a blue sky overlooking far mountains; trees sway in the wind, golden leaves drift, butterflies flutter and chubby cats stroll, groom and nap belly-up with gentle breathing. Click a cat to pet it, a tree to shake its leaves, or the grass to drop a yarn ball for the cats to chase",
+      "groups": [
+        "Mounds",
+        "Cats",
+        "Hills"
+      ],
+      "params": {
+        "mound": {
+          "label": "Mound size",
+          "hint": "How far the grassy mound spreads around your icons; nearby icons share one mound",
+          "unit": "px"
+        },
+        "cats": {
+          "label": "Cat count",
+          "hint": "How many chubby cats roam the hills: ginger, grey tabby, tuxedo, calico, black and Siamese",
+          "unit": ""
+        },
+        "speed": {
+          "label": "Walking speed",
+          "hint": "Whether the cats amble slowly or trot around"
+        },
+        "naps": {
+          "label": "Laziness",
+          "hint": "How likely a cat is to curl up for a nap instead of just sitting"
+        },
+        "sun": {
+          "label": "Warm sunlight",
+          "hint": "Brightness of the sunshine falling on the hills"
+        },
+        "flowers": {
+          "label": "Wildflowers",
+          "hint": "Density of daisies and pink and yellow flowers on the hills"
+        },
+        "bushes": {
+          "label": "Trees & bushes",
+          "hint": "How many big trees and bushes dot the hill; cats can walk behind them",
+          "unit": ""
+        },
+        "wind": {
+          "label": "Wind",
+          "hint": "Stronger wind sways the bushes and blows more drifting and falling leaves; 0 is calm"
+        }
+      }
     }
   }
 }

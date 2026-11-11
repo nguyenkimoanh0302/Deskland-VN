@@ -177,6 +177,17 @@ pub static SUMMER_PORCH: [ParamDef; 6] = [
     p("sigma", "Độ rộng luống vườn", 45.0, 140.0, 1.0, 78.0, "px", Fmt::Num),
     p("warp", "Độ uốn bờ vườn", 0.0, 70.0, 1.0, 28.0, "", Fmt::Num),
 ];
+// Mèo con trên đồi (bản web: prototype/cats.html)
+pub static CATS: [ParamDef; 8] = [
+    p("mound", "Độ rộng gò cỏ", 10.0, 80.0, 1.0, 28.0, "px", Fmt::Num),
+    p("cats", "Số chú mèo", 1.0, 14.0, 1.0, 8.0, "con", Fmt::Num),
+    p("speed", "Tốc độ đi", 0.3, 2.0, 0.05, 1.0, "", Fmt::Mul),
+    p("naps", "Độ lười", 0.0, 1.0, 0.01, 0.35, "", Fmt::Pct),
+    p("sun", "Nắng ấm", 0.0, 1.0, 0.01, 0.6, "", Fmt::Pct),
+    p("flowers", "Hoa dại", 0.0, 1.0, 0.01, 0.6, "", Fmt::Pct),
+    p("bushes", "Cây & lùm cây", 0.0, 10.0, 1.0, 4.0, "cây", Fmt::Num),
+    p("wind", "Sức gió", 0.0, 2.0, 0.05, 1.0, "", Fmt::Mul),
+];
 const IDLE_CHOICES: [u32; 8] = [1, 2, 3, 5, 10, 15, 30, 60];
 
 fn defs(theme: &str) -> &'static [ParamDef] {
@@ -194,6 +205,7 @@ fn defs(theme: &str) -> &'static [ParamDef] {
         "aquarium" => &AQUARIUM,
         "commute" => &COMMUTE,
         "summer-porch" => &SUMMER_PORCH,
+        "cats" => &CATS,
         _ => &BEACH,
     }
 }

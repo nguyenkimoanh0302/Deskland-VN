@@ -8,6 +8,7 @@ description = "Deskland native (Rust + OpenGL) - hình nền động tương tá
 [dependencies]
 glow = "0.14"
 serde_json = "1"
+tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd"] }
 webview2-com = "0.39"
 
 [dependencies.windows]
@@ -47,3 +48,6 @@ opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
+
+[build-dependencies]
+embed-manifest = "1"

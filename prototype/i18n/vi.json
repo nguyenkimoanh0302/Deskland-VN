@@ -735,6 +735,52 @@
           "hint": "Đường viền luống vườn thẳng tắp hay uốn lượn mềm mại tự nhiên"
         }
       }
+    },
+    "cats": {
+      "name": "Mèo con trên đồi",
+      "desc": "Ngọn đồi xanh tươi dưới trời xanh mây trắng, nhìn ra dãy núi xa; cây lá đung đưa trong gió, lá vàng bay, bướm lượn và đàn mèo mập lon ton đi dạo, liếm lông, nằm ngửa ngủ thở phập phồng. Bấm vào mèo để vuốt ve, bấm vào cây để rung lá, bấm xuống cỏ để thả cuộn len cho mèo vờn",
+      "groups": [
+        "Gò cỏ",
+        "Những chú mèo",
+        "Đồi cỏ"
+      ],
+      "params": {
+        "mound": {
+          "label": "Độ rộng gò cỏ",
+          "hint": "Gò cỏ êm quanh biểu tượng rộng bao nhiêu; các biểu tượng gần nhau sẽ nối liền thành một gò",
+          "unit": "px"
+        },
+        "cats": {
+          "label": "Số chú mèo",
+          "hint": "Số mèo mập đi lại trên đồi: cam, xám vằn, mướp, tam thể, mun, Xiêm",
+          "unit": "con"
+        },
+        "speed": {
+          "label": "Tốc độ đi",
+          "hint": "Mèo đi chậm rãi thong thả hay lon ton nhanh nhẹn"
+        },
+        "naps": {
+          "label": "Độ lười",
+          "hint": "Khả năng mèo cuộn tròn ngủ một giấc thay vì chỉ ngồi nghỉ"
+        },
+        "sun": {
+          "label": "Nắng ấm",
+          "hint": "Độ sáng của nắng chiếu xuống đồi cỏ từ góc trên"
+        },
+        "flowers": {
+          "label": "Hoa dại",
+          "hint": "Mật độ hoa cúc trắng, hoa hồng phấn và hoa vàng rải trên đồi"
+        },
+        "bushes": {
+          "label": "Cây & lùm cây",
+          "hint": "Số cây lớn và lùm cây trên đồi; mèo có thể đi khuất sau tán lá",
+          "unit": "cây"
+        },
+        "wind": {
+          "label": "Sức gió",
+          "hint": "Gió càng mạnh cây càng đung đưa, lá bay và lá rụng càng nhiều; 0 là lặng gió"
+        }
+      }
     }
   }
 }

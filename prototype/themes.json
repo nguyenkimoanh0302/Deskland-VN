@@ -1269,6 +1269,112 @@
           ]
         }
       ]
+    },
+    {
+      "id": "cats",
+      "name": "Mèo con trên đồi",
+      "desc": "Ngọn đồi xanh tươi dưới trời xanh mây trắng, nhìn ra dãy núi xa; cây lá đung đưa trong gió, lá vàng bay, bướm lượn và đàn mèo mập lon ton đi dạo, liếm lông, nằm ngửa ngủ thở phập phồng. Bấm vào mèo để vuốt ve, bấm vào cây để rung lá, bấm xuống cỏ để thả cuộn len cho mèo vờn",
+      "page": "cats.html",
+      "status": "ready",
+      "product": "free",
+      "thumb": "url(thumbs/cats.jpg) center / cover no-repeat, radial-gradient(ellipse 9% 12% at 52% 64%, #f6a85a 60%, transparent 64%), radial-gradient(ellipse 8% 11% at 34% 72%, #fdfdfb 60%, transparent 64%), radial-gradient(ellipse 16% 24% at 82% 40%, #66b63a 60%, transparent 64%), radial-gradient(ellipse 12% 18% at 12% 98%, #3e8e2c 60%, transparent 64%), radial-gradient(ellipse 120% 70% at 50% 100%, #b6e04a 60%, transparent 61%), linear-gradient(180deg, #36a3ee 0%, #8fd2f7 28%, #74bd57 34%, #a3d23f 100%)",
+      "groups": [
+        {
+          "name": "Gò cỏ",
+          "params": [
+            {
+              "key": "mound",
+              "label": "Độ rộng gò cỏ",
+              "hint": "Gò cỏ êm quanh biểu tượng rộng bao nhiêu; các biểu tượng gần nhau sẽ nối liền thành một gò",
+              "min": 10,
+              "max": 80,
+              "step": 1,
+              "default": 28,
+              "unit": "px"
+            }
+          ]
+        },
+        {
+          "name": "Những chú mèo",
+          "params": [
+            {
+              "key": "cats",
+              "label": "Số chú mèo",
+              "hint": "Số mèo mập đi lại trên đồi: cam, xám vằn, mướp, tam thể, mun, Xiêm",
+              "min": 1,
+              "max": 14,
+              "step": 1,
+              "default": 8,
+              "unit": "con"
+            },
+            {
+              "key": "speed",
+              "label": "Tốc độ đi",
+              "hint": "Mèo đi chậm rãi thong thả hay lon ton nhanh nhẹn",
+              "min": 0.3,
+              "max": 2,
+              "step": 0.05,
+              "default": 1,
+              "format": "times"
+            },
+            {
+              "key": "naps",
+              "label": "Độ lười",
+              "hint": "Khả năng mèo cuộn tròn ngủ một giấc thay vì chỉ ngồi nghỉ",
+              "min": 0,
+              "max": 1,
+              "step": 0.01,
+              "default": 0.35,
+              "format": "percent"
+            }
+          ]
+        },
+        {
+          "name": "Đồi cỏ",
+          "params": [
+            {
+              "key": "sun",
+              "label": "Nắng ấm",
+              "hint": "Độ sáng của nắng chiếu xuống đồi cỏ từ góc trên",
+              "min": 0,
+              "max": 1,
+              "step": 0.01,
+              "default": 0.6,
+              "format": "percent"
+            },
+            {
+              "key": "flowers",
+              "label": "Hoa dại",
+              "hint": "Mật độ hoa cúc trắng, hoa hồng phấn và hoa vàng rải trên đồi",
+              "min": 0,
+              "max": 1,
+              "step": 0.01,
+              "default": 0.6,
+              "format": "percent"
+            },
+            {
+              "key": "bushes",
+              "label": "Cây & lùm cây",
+              "hint": "Số cây lớn và lùm cây trên đồi; mèo có thể đi khuất sau tán lá",
+              "min": 0,
+              "max": 10,
+              "step": 1,
+              "default": 4,
+              "unit": "cây"
+            },
+            {
+              "key": "wind",
+              "label": "Sức gió",
+              "hint": "Gió càng mạnh cây càng đung đưa, lá bay và lá rụng càng nhiều; 0 là lặng gió",
+              "min": 0,
+              "max": 2,
+              "step": 0.05,
+              "default": 1,
+              "format": "times"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

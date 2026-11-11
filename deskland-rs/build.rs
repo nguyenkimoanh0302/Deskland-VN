@@ -53,5 +53,26 @@ fn main() {
             .expect("Không chạy được rc.exe để biên dịch app.rc");
         assert!(status.success(), "rc.exe biên dịch app.rc thất bại (mã thoát: {:?})", status.code());
         println!("cargo:rustc-link-arg-bins={}", res_out.display());
+    } else if target.contains("windows") && target.contains("gnu") {
+        build_gnu_resources();
+    }
+}
+
+/// Máy không cài được MSVC Build Tools (cần quyền quản trị): bộ công cụ GNU không có /MANIFEST,
+/// nên dựng tài nguyên manifest bằng Rust (embed-manifest) và biên dịch app.rc bằng windres của MinGW.
+fn build_gnu_resources() {
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    embed_manifest::embed_manifest_file(manifest_dir.join("app.manifest")).expect("Không nhúng được app.manifest vào exe (bản build GNU)");
+    let res_out = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("app-res.o");
+    let built = Command::new("windres")
+        .current_dir(&manifest_dir)
+        .args(["app.rc", "-O", "coff", "-o"])
+        .arg(&res_out)
+        .status()
+        .is_ok_and(|s| s.success());
+    if built {
+        println!("cargo:rustc-link-arg-bins={}", res_out.display());
+    } else {
+        println!("cargo:warning=Không có windres (MinGW) trong PATH: exe sẽ thiếu biểu tượng và VERSIONINFO");
     }
 }
