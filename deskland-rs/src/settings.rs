@@ -151,6 +151,15 @@ pub static STADIUM: [ParamDef; 5] = [
     p("lighting", "Ánh sáng sân (0-2)", 0.0, 2.0, 1.0, 0.0, "", Fmt::Num),
     p("stripes", "Độ đậm sọc cỏ", 0.0, 1.0, 0.05, 0.65, "", Fmt::Pct),
 ];
+pub static COMMUTE: [ParamDef; 7] = [
+    p("time", "Giờ trong ngày (0 theo máy, 1 ngày, 2 chiều, 3 đêm)", 0.0, 3.0, 1.0, 0.0, "", Fmt::Num),
+    p("busFreq", "Xe buýt qua lại", 0.2, 2.5, 0.05, 1.0, "", Fmt::Mul),
+    p("wind", "Gió", 0.0, 2.0, 0.05, 1.0, "", Fmt::Mul),
+    p("reeds", "Lau sậy", 0.0, 1.0, 0.05, 0.7, "", Fmt::Pct),
+    p("lights", "Đèn phố ban đêm", 0.0, 1.0, 0.05, 1.0, "", Fmt::Pct),
+    p("sigma", "Độ rộng đồi cỏ / mây", 40.0, 200.0, 1.0, 70.0, "px", Fmt::Num),
+    p("warp", "Độ uốn mép", 0.0, 80.0, 1.0, 30.0, "", Fmt::Num),
+];
 pub static AQUARIUM: [ParamDef; 7] = [
     p("fish", "Số cá vàng", 1.0, 8.0, 1.0, 4.0, "con", Fmt::Num),
     p("eager", "Cá háu ăn", 0.4, 2.5, 0.05, 1.0, "", Fmt::Mul),
@@ -159,6 +168,14 @@ pub static AQUARIUM: [ParamDef; 7] = [
     p("light", "Tia nắng", 0.0, 1.0, 0.05, 0.6, "", Fmt::Pct),
     p("sigma", "Độ rộng rạn cát", 40.0, 200.0, 1.0, 80.0, "px", Fmt::Num),
     p("warp", "Độ uốn rạn cát", 0.0, 80.0, 1.0, 30.0, "", Fmt::Num),
+];
+pub static SUMMER_PORCH: [ParamDef; 6] = [
+    p("corgis", "Số lượng Corgi", 1.0, 4.0, 1.0, 3.0, "bé", Fmt::Num),
+    p("fanSpeed", "Tốc độ quạt bàn", 0.0, 2.0, 0.05, 1.0, "", Fmt::Mul),
+    p("timeOfDay", "Thời điểm (0-3)", 0.0, 3.0, 1.0, 0.0, "", Fmt::Num),
+    p("sunbeams", "Nắng & đom đóm", 0.0, 1.0, 0.05, 0.7, "", Fmt::Pct),
+    p("sigma", "Độ rộng luống vườn", 45.0, 140.0, 1.0, 78.0, "px", Fmt::Num),
+    p("warp", "Độ uốn bờ vườn", 0.0, 70.0, 1.0, 28.0, "", Fmt::Num),
 ];
 const IDLE_CHOICES: [u32; 8] = [1, 2, 3, 5, 10, 15, 30, 60];
 
@@ -175,6 +192,8 @@ fn defs(theme: &str) -> &'static [ParamDef] {
         "cat-hill" => &CAT_HILL,
         "stadium" => &STADIUM,
         "aquarium" => &AQUARIUM,
+        "commute" => &COMMUTE,
+        "summer-porch" => &SUMMER_PORCH,
         _ => &BEACH,
     }
 }

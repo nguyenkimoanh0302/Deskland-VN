@@ -1085,6 +1085,190 @@
           ]
         }
       ]
+    },
+    {
+      "id": "commute",
+      "name": "Chuyến xe chiều",
+      "desc": "Phong cảnh hoạt hình ven sông: trời đổi màu theo giờ trong ngày, phố lên đèn bên kia sông, xe buýt vàng chạy qua giữa đồng lau đung đưa. Bấm vào đường để gọi xe dừng, bấm lên trời để có đàn chim hay sao băng, bấm vào cỏ để gió thổi rạp lau",
+      "page": "commute.html",
+      "status": "ready",
+      "product": "free",
+      "thumb": "url(thumbs/commute.jpg) center / cover no-repeat, linear-gradient(180deg, #5b5aa6 0%, #f3a77d 55%, #3f7a3a 80%, #c9a35a 100%)",
+      "groups": [
+        {
+          "name": "Thời gian & xe buýt",
+          "params": [
+            {
+              "key": "time",
+              "label": "Giờ trong ngày",
+              "hint": "Bầu trời, ánh nắng và đèn phố theo đúng giờ trên máy, hoặc giữ cố định một thời điểm",
+              "options": [
+                "Theo giờ máy",
+                "Ban ngày",
+                "Hoàng hôn",
+                "Ban đêm"
+              ],
+              "default": 0
+            },
+            {
+              "key": "busFreq",
+              "label": "Xe buýt qua lại",
+              "hint": "Xe buýt chạy qua thường xuyên hay thưa thớt; bấm vào đường để gọi xe dừng bất cứ lúc nào",
+              "min": 0.2,
+              "max": 2.5,
+              "step": 0.05,
+              "default": 1,
+              "format": "times"
+            }
+          ]
+        },
+        {
+          "name": "Gió & cảnh vật",
+          "params": [
+            {
+              "key": "wind",
+              "label": "Gió",
+              "hint": "Lau sậy, mây và hạt bồ công anh bay theo gió mạnh hay nhẹ",
+              "min": 0,
+              "max": 2,
+              "step": 0.05,
+              "default": 1,
+              "format": "times"
+            },
+            {
+              "key": "reeds",
+              "label": "Lau sậy",
+              "hint": "Độ dày của đồng lau ở tiền cảnh",
+              "min": 0,
+              "max": 1,
+              "step": 0.05,
+              "default": 0.7,
+              "format": "percent"
+            },
+            {
+              "key": "lights",
+              "label": "Đèn phố ban đêm",
+              "hint": "Độ sáng đèn đường, đèn cầu và cửa sổ phố khi trời tối",
+              "min": 0,
+              "max": 1,
+              "step": 0.05,
+              "default": 1,
+              "format": "percent"
+            }
+          ]
+        },
+        {
+          "name": "Quanh biểu tượng",
+          "params": [
+            {
+              "key": "sigma",
+              "label": "Độ rộng đồi cỏ / mây",
+              "hint": "Biểu tượng trên trời nằm trên mây, dưới đất nằm trên đồi cỏ; vùng ấy rộng bao nhiêu",
+              "min": 40,
+              "max": 200,
+              "step": 1,
+              "default": 70,
+              "unit": "px"
+            },
+            {
+              "key": "warp",
+              "label": "Độ uốn mép",
+              "hint": "Mép mây và đồi cỏ thẳng gọn hay uốn lượn tự nhiên",
+              "min": 0,
+              "max": 80,
+              "step": 1,
+              "default": 30
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "summer-porch",
+      "name": "Hiên nhà ngày hạ",
+      "desc": "Hiên gỗ màu nước ngập nắng kiểu Ghibli: đàn Corgi mập ngủ trưa lăn mình trước quạt bàn cổ điển, bên đĩa dưa hấu đỏ, sách mở và chuông gió đồng; luống vườn xanh nở hoa vàng ôm quanh biểu tượng. Bấm vào Corgi để gãi bụng, bấm quạt bàn đổi tốc độ gió, gõ chuông gió hoặc cắn dưa hấu",
+      "page": "summer-porch.html",
+      "status": "ready",
+      "product": "free",
+      "thumb": "url(thumbs/summer-porch.jpg) center / cover no-repeat, linear-gradient(135deg, #c9eb85 0%, #86b849 48%, #7a6843 100%)",
+      "groups": [
+        {
+          "name": "Hiên nhà & Corgi",
+          "params": [
+            {
+              "key": "corgis",
+              "label": "Số lượng Corgi",
+              "hint": "Số bé Corgi nằm ngủ trưa trên hiên gỗ (tự động lăn mình đổi tư thế hoặc khi được gãi bụng)",
+              "min": 1,
+              "max": 4,
+              "step": 1,
+              "default": 3,
+              "unit": "bé"
+            },
+            {
+              "key": "fanSpeed",
+              "label": "Tốc độ quạt bàn",
+              "hint": "Tốc độ quay đầu và thổi gió của chiếc quạt bàn cổ điển (làm trang sách lật và ruy băng bay)",
+              "min": 0,
+              "max": 2,
+              "step": 0.05,
+              "default": 1,
+              "format": "times"
+            }
+          ]
+        },
+        {
+          "name": "Ánh sáng & không khí",
+          "params": [
+            {
+              "key": "timeOfDay",
+              "label": "Thời điểm trong ngày",
+              "hint": "Chuyển đổi giữa nắng trưa rực rỡ, hoàng hôn mật ong, đêm hè đom đóm hoặc tự động theo giờ máy",
+              "options": [
+                "Trưa nắng",
+                "Hoàng hôn",
+                "Đêm đom đóm",
+                "Theo giờ thực"
+              ],
+              "default": 0
+            },
+            {
+              "key": "sunbeams",
+              "label": "Nắng & đom đóm",
+              "hint": "Độ rực của các dải nắng xiên qua mái ngói ban ngày và mật độ bướm / đom đóm bay quanh vườn",
+              "min": 0,
+              "max": 1,
+              "step": 0.05,
+              "default": 0.7,
+              "format": "percent"
+            }
+          ]
+        },
+        {
+          "name": "Quanh biểu tượng",
+          "params": [
+            {
+              "key": "sigma",
+              "label": "Độ rộng luống vườn",
+              "hint": "Các biểu tượng ngoài sân được bao bọc bởi luống rau xanh điểm hoa vàng; trên hiên nằm trên chiếu cói",
+              "min": 45,
+              "max": 140,
+              "step": 1,
+              "default": 78,
+              "unit": "px"
+            },
+            {
+              "key": "warp",
+              "label": "Độ uốn bờ vườn",
+              "hint": "Đường viền luống vườn thẳng tắp hay uốn lượn mềm mại tự nhiên",
+              "min": 0,
+              "max": 70,
+              "step": 1,
+              "default": 28
+            }
+          ]
+        }
+      ]
     }
   ]
 }

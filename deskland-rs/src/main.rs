@@ -1,4 +1,4 @@
-//! deskland-rs: bản Rust native (1 tiến trình, OpenGL 3.3) của Deskland — 12 chủ đề tương tác thích ứng.
+//! deskland-rs: bản Rust native (1 tiến trình, OpenGL 3.3) của Deskland — 14 chủ đề tương tác thích ứng.
 //! Chạy:   deskland-rs.exe [--theme <id>] [--fps 20] [--settings]
 //! Thoát:  deskland-rs.exe --quit   (hoặc menu khay hệ thống)
 
@@ -13,6 +13,7 @@ mod themes {
     pub mod aquarium;
     pub mod beach;
     pub mod cat_hill;
+    pub mod commute;
     pub mod lake;
     pub mod maldives;
     pub mod meadow;
@@ -21,6 +22,7 @@ mod themes {
     pub mod rainforest;
     pub mod sky;
     pub mod stadium;
+    pub mod summer_porch;
     pub mod tet_sakura;
 }
 mod wgl;
@@ -96,6 +98,8 @@ pub const THEMES: &[(&str, &str, usize)] = &[
     ("cat-hill", "Đồi mèo nắng ấm", 110),
     ("stadium", "Sân bóng sôi động", 111),
     ("aquarium", "Bể cá vàng", 113),
+    ("commute", "Chuyến xe chiều", 114),
+    ("summer-porch", "Hiên nhà ngày hạ", 115),
 ];
 
 pub fn canonical_theme(id: &str) -> Option<&'static str> {
@@ -106,6 +110,8 @@ pub fn canonical_theme(id: &str) -> Option<&'static str> {
         "cat_hill" => Some("cat-hill"),
         "football" | "soccer" | "pitch" => Some("stadium"),
         "fish" | "fishing" | "goldfish" | "fishbowl" => Some("aquarium"),
+        "bus" | "evening-bus" | "commute-bus" => Some("commute"),
+        "porch" | "corgi" | "corgi-porch" | "veranda" | "summer_porch" => Some("summer-porch"),
         other => THEMES.iter().find(|&&(tid, _, _)| tid == other).map(|&(tid, _, _)| tid),
     }
 }
@@ -465,7 +471,9 @@ fn web_init(app: &App) -> serde_json::Value {
                 "tet-sakura",
                 "cat-hill",
                 "stadium",
-                "aquarium"
+                "aquarium",
+                "commute",
+                "summer-porch"
             ],
             // Chưa port: cây dừa, cậu bé, mèo -> ẩn thanh trượt, xem trước cũng tắt cho giống desktop
             "hide": ["palms", "showBoy", "showCat"],
@@ -618,7 +626,9 @@ impl App {
             "tet-sakura" => Box::new(themes::tet_sakura::TetSakura::new(gl, w, h, buf_w, buf_h, scale, seed, themes::tet_sakura::Params::from_json(p), rs, now)),
             "cat-hill" => Box::new(themes::cat_hill::CatHill::new(gl, w, h, buf_w, buf_h, scale, seed, themes::cat_hill::Params::from_json(p), rs, now)),
             "stadium" => Box::new(themes::stadium::Stadium::new(gl, w, h, buf_w, buf_h, scale, seed, themes::stadium::Params::from_json(p), rs, now)),
+            "commute" => Box::new(themes::commute::Commute::new(gl, w, h, buf_w, buf_h, scale, seed, themes::commute::Params::from_json(p), rs, now)),
             "aquarium" => Box::new(themes::aquarium::Aquarium::new(gl, w, h, buf_w, buf_h, scale, seed, themes::aquarium::Params::from_json(p), rs, now)),
+            "summer-porch" => Box::new(themes::summer_porch::SummerPorch::new(gl, w, h, buf_w, buf_h, scale, seed, themes::summer_porch::Params::from_json(p), rs, now)),
             _ => Box::new(themes::beach::Beach::new(gl, w, h, buf_w, buf_h, scale, seed, themes::beach::Params::from_json(p), rs, now)),
         }
     }
@@ -640,6 +650,8 @@ impl App {
             "cat-hill" => themes::cat_hill::FRAG,
             "stadium" => themes::stadium::FRAG,
             "aquarium" => themes::aquarium::FRAG,
+            "commute" => themes::commute::FRAG,
+            "summer-porch" => themes::summer_porch::FRAG,
             _ => themes::beach::FRAG,
         };
         let t0 = Instant::now();

@@ -646,6 +646,95 @@
           "hint": "Mép rạn cát thẳng gọn hay uốn lượn tự nhiên"
         }
       }
+    },
+    "commute": {
+      "name": "Chuyến xe chiều",
+      "desc": "Phong cảnh hoạt hình ven sông: trời đổi màu theo giờ trong ngày, phố lên đèn bên kia sông, xe buýt vàng chạy qua giữa đồng lau đung đưa. Bấm vào đường để gọi xe dừng, bấm lên trời để có đàn chim hay sao băng, bấm vào cỏ để gió thổi rạp lau",
+      "groups": [
+        "Thời gian & xe buýt",
+        "Gió & cảnh vật",
+        "Quanh biểu tượng"
+      ],
+      "params": {
+        "time": {
+          "label": "Giờ trong ngày",
+          "hint": "Bầu trời, ánh nắng và đèn phố theo đúng giờ trên máy, hoặc giữ cố định một thời điểm",
+          "options": [
+            "Theo giờ máy",
+            "Ban ngày",
+            "Hoàng hôn",
+            "Ban đêm"
+          ]
+        },
+        "busFreq": {
+          "label": "Xe buýt qua lại",
+          "hint": "Xe buýt chạy qua thường xuyên hay thưa thớt; bấm vào đường để gọi xe dừng bất cứ lúc nào"
+        },
+        "wind": {
+          "label": "Gió",
+          "hint": "Lau sậy, mây và hạt bồ công anh bay theo gió mạnh hay nhẹ"
+        },
+        "reeds": {
+          "label": "Lau sậy",
+          "hint": "Độ dày của đồng lau ở tiền cảnh"
+        },
+        "lights": {
+          "label": "Đèn phố ban đêm",
+          "hint": "Độ sáng đèn đường, đèn cầu và cửa sổ phố khi trời tối"
+        },
+        "sigma": {
+          "label": "Độ rộng đồi cỏ / mây",
+          "hint": "Biểu tượng trên trời nằm trên mây, dưới đất nằm trên đồi cỏ; vùng ấy rộng bao nhiêu",
+          "unit": "px"
+        },
+        "warp": {
+          "label": "Độ uốn mép",
+          "hint": "Mép mây và đồi cỏ thẳng gọn hay uốn lượn tự nhiên"
+        }
+      }
+    },
+    "summer-porch": {
+      "name": "Hiên nhà ngày hạ",
+      "desc": "Hiên gỗ màu nước ngập nắng kiểu Ghibli: đàn Corgi mập ngủ trưa lăn mình trước quạt bàn cổ điển, bên đĩa dưa hấu đỏ, sách mở và chuông gió đồng; luống vườn xanh nở hoa vàng ôm quanh biểu tượng. Bấm vào Corgi để gãi bụng, bấm quạt bàn đổi tốc độ gió, gõ chuông gió hoặc cắn dưa hấu",
+      "groups": [
+        "Hiên nhà & Corgi",
+        "Ánh sáng & không khí",
+        "Quanh biểu tượng"
+      ],
+      "params": {
+        "corgis": {
+          "label": "Số lượng Corgi",
+          "hint": "Số bé Corgi nằm ngủ trưa trên hiên gỗ (tự động lăn mình đổi tư thế hoặc khi được gãi bụng)",
+          "unit": "bé"
+        },
+        "fanSpeed": {
+          "label": "Tốc độ quạt bàn",
+          "hint": "Tốc độ quay đầu và thổi gió của chiếc quạt bàn cổ điển (làm trang sách lật và ruy băng bay)"
+        },
+        "timeOfDay": {
+          "label": "Thời điểm trong ngày",
+          "hint": "Chuyển đổi giữa nắng trưa rực rỡ, hoàng hôn mật ong, đêm hè đom đóm hoặc tự động theo giờ máy",
+          "options": [
+            "Trưa nắng",
+            "Hoàng hôn",
+            "Đêm đom đóm",
+            "Theo giờ thực"
+          ]
+        },
+        "sunbeams": {
+          "label": "Nắng & đom đóm",
+          "hint": "Độ rực của các dải nắng xiên qua mái ngói ban ngày và mật độ bướm / đom đóm bay quanh vườn"
+        },
+        "sigma": {
+          "label": "Độ rộng luống vườn",
+          "hint": "Các biểu tượng ngoài sân được bao bọc bởi luống rau xanh điểm hoa vàng; trên hiên nằm trên chiếu cói",
+          "unit": "px"
+        },
+        "warp": {
+          "label": "Độ uốn bờ vườn",
+          "hint": "Đường viền luống vườn thẳng tắp hay uốn lượn mềm mại tự nhiên"
+        }
+      }
     }
   }
 }

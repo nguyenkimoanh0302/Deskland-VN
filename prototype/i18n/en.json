@@ -645,6 +645,95 @@
           "hint": "Straight, tidy reef edges or natural winding ones"
         }
       }
+    },
+    "commute": {
+      "name": "Evening Bus",
+      "desc": "An animated riverside view: the sky follows your clock, the city lights up across the river and a yellow bus rolls past swaying reeds. Click the road to call the bus, the sky for birds or a shooting star, the grass for a gust of wind",
+      "groups": [
+        "Time & bus",
+        "Wind & scenery",
+        "Around icons"
+      ],
+      "params": {
+        "time": {
+          "label": "Time of day",
+          "hint": "Sky, sunlight and city lights follow your computer's clock, or stay at a fixed time",
+          "options": [
+            "Follow clock",
+            "Day",
+            "Sunset",
+            "Night"
+          ]
+        },
+        "busFreq": {
+          "label": "Bus traffic",
+          "hint": "How often the bus passes; click the road to call it at any time"
+        },
+        "wind": {
+          "label": "Wind",
+          "hint": "How strongly reeds, clouds and dandelion seeds move"
+        },
+        "reeds": {
+          "label": "Reeds",
+          "hint": "How dense the foreground reeds are"
+        },
+        "lights": {
+          "label": "City lights",
+          "hint": "Brightness of street lamps, bridge lights and windows at night"
+        },
+        "sigma": {
+          "label": "Hill / cloud width",
+          "hint": "Icons in the sky rest on clouds, icons below on grassy hills; how wide those areas are",
+          "unit": "px"
+        },
+        "warp": {
+          "label": "Edge curves",
+          "hint": "Straight, tidy edges or natural winding ones"
+        }
+      }
+    },
+    "summer-porch": {
+      "name": "Summer Porch",
+      "desc": "A Ghibli-inspired watercolor summer veranda: chubby Corgis nap and roll over in front of an oscillating vintage desk fan beside sliced watermelon, an open book and a brass wind chime, while flowering garden beds wrap around your icons. Click a Corgi for belly rubs, toggle the fan, ring the chime or take a bite of watermelon",
+      "groups": [
+        "Veranda & Corgis",
+        "Light & atmosphere",
+        "Around icons"
+      ],
+      "params": {
+        "corgis": {
+          "label": "Corgis on porch",
+          "hint": "How many sleepy Corgis lounge on the wooden deck and roll between poses",
+          "unit": ""
+        },
+        "fanSpeed": {
+          "label": "Desk fan breeze",
+          "hint": "Oscillation and airflow speed of the vintage fan fluttering the ribbon and book pages"
+        },
+        "timeOfDay": {
+          "label": "Time of day",
+          "hint": "Switch between bright summer noon, golden sunset, firefly night, or follow your PC clock",
+          "options": [
+            "Sunny Noon",
+            "Golden Sunset",
+            "Firefly Night",
+            "Real-time Auto"
+          ]
+        },
+        "sunbeams": {
+          "label": "Sunbeams & fireflies",
+          "hint": "Warmth of slanted sun rays by day and butterflies or glowing fireflies around the yard"
+        },
+        "sigma": {
+          "label": "Garden bed width",
+          "hint": "Icons in the yard rest on leafy vegetable beds with yellow blossoms, or woven mats on the deck",
+          "unit": "px"
+        },
+        "warp": {
+          "label": "Garden border curves",
+          "hint": "Neatly trimmed garden borders or organic hand-drawn curves"
+        }
+      }
     }
   }
 }
