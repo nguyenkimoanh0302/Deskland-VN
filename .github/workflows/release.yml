@@ -1,0 +1,84 @@
+# Đóng gói bản phát hành khi đẩy tag phiên bản (ví dụ: git tag v0.2.0 && git push origin v0.2.0).
+# Build trên máy chủ GitHub (không dùng exe build ở máy cá nhân): bản phát hành khớp đúng mã nguồn của tag
+# và không chứa đường dẫn máy người phát triển. Gói zip gồm exe + thư mục prototype (trang Cài đặt WebView2
+# và các chủ đề web) + giấy phép, đáp ứng GPL-3.0 (mã nguồn công khai tại chính kho này).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag phát hành (vd: v0.2.0) - phải đã tồn tại'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Kiểm tra sổ đăng ký chủ đề
+        run: node tools/check-themes.mjs
+
+      - name: Cài Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Build deskland-rs (release, CRT tĩnh)
+        working-directory: deskland-rs
+        run: cargo build --release --locked
+
+      - name: Đóng gói Deskland-VN-<tag>-win-x64.zip
+        run: |
+          $exe = "deskland-rs/target/release/deskland-rs.exe"
+          $t = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exe))
+          if ($t.Contains("VCRUNTIME140")) { throw "exe vẫn phụ thuộc VCRUNTIME140.dll" }
+          $name = "Deskland-VN-$env:TAG-win-x64"
+          $dir = "dist/$name"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item $exe "$dir/Deskland-VN.exe"
+          Copy-Item -Recurse prototype "$dir/prototype"
+          Remove-Item "$dir/prototype/serve.mjs" -ErrorAction SilentlyContinue
+          foreach ($f in 'LICENSE','NOTICE','THIRD_PARTY_NOTICES.md','TRADEMARKS.md') { Copy-Item $f $dir }
+          Copy-Item README.md "$dir/README.md"
+          Copy-Item deskland-rs/README.md "$dir/README-deskland-rs.md"
+          @"
+          Deskland-VN $env:TAG (Windows 10/11 x64)
+
+          1. Giải nén toàn bộ thư mục này vào nơi cố định (ví dụ: Documents\Deskland-VN).
+             Giữ Deskland-VN.exe nằm cạnh thư mục prototype để có trang Cài đặt đầy đủ.
+          2. Chạy Deskland-VN.exe. Lần đầu Windows SmartScreen có thể báo "Windows protected your PC"
+             vì tệp chưa có chữ ký số: bấm "More info" -> "Run anyway".
+          3. Bấm chuột trái vào biểu tượng Deskland ở khay hệ thống để mở Cài đặt.
+
+          Không cần cài Rust hay Visual C++ Redistributable. Mã nguồn: https://github.com/${{ github.repository }}
+          Bản phái sinh của Deskland (https://github.com/BLEZZ0102/Deskland), giấy phép GPL-3.0 - xem LICENSE, NOTICE.
+          "@ | Set-Content "$dir/DOC-TRUOC.txt" -Encoding utf8
+          Compress-Archive -Path $dir -DestinationPath "dist/$name.zip"
+          $hash = (Get-FileHash "dist/$name.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $name.zip" | Set-Content "dist/$name.zip.sha256" -Encoding ascii
+          "ZIP=dist/$name.zip" >> $env:GITHUB_ENV
+          "SHA=dist/$name.zip.sha256" >> $env:GITHUB_ENV
+
+      - name: Đăng lên GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: Deskland-VN ${{ env.TAG }}
+          generate_release_notes: true
+          files: |
+            ${{ env.ZIP }}
+            ${{ env.SHA }}

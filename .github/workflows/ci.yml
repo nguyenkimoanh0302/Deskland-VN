@@ -1,0 +1,55 @@
+# Kiểm tra mỗi Pull Request / commit lên main: sổ đăng ký chủ đề hợp lệ + bản Rust build được.
+# Bản exe build ra được đính kèm (giữ 7 ngày) để người review tải về chạy thử.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kiểm tra sổ đăng ký chủ đề (themes.json, i18n, ảnh thu nhỏ)
+        run: node tools/check-themes.mjs
+
+      - name: Cài Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            deskland-rs/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('deskland-rs/Cargo.lock') }}
+
+      - name: Build deskland-rs (release, CRT tĩnh)
+        working-directory: deskland-rs
+        run: cargo build --release --locked
+
+      - name: Kiểm tra exe không cần VC++ Redistributable
+        run: |
+          $t = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes("deskland-rs/target/release/deskland-rs.exe"))
+          if ($t.Contains("VCRUNTIME140")) { throw "deskland-rs.exe vẫn phụ thuộc VCRUNTIME140.dll (thiếu +crt-static?)" }
+          "OK: không phụ thuộc VCRUNTIME140"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deskland-rs-exe
+          path: deskland-rs/target/release/deskland-rs.exe
+          retention-days: 7
