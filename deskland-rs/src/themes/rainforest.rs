@@ -40,6 +40,7 @@ struct RainforestBird {
     turn: f32,
     ph: f32,
     timer: f32,
+    boost: f32,
 }
 
 struct Firefly {
@@ -57,6 +58,8 @@ pub struct Rainforest {
     rng: Rng,
     birds: Vec<RainforestBird>,
     flies: Vec<Firefly>,
+    ripples: Vec<[f32; 4]>,
+    attract: Option<(f32, f32, f32)>,
     t0: f64,
 }
 
@@ -68,6 +71,8 @@ impl Rainforest {
             rng: Rng::new(rng_seed),
             birds: Vec::new(),
             flies: Vec::new(),
+            ripples: Vec::new(),
+            attract: None,
             t0: now,
         };
         s.commit(gl, true, now);
@@ -91,6 +96,7 @@ impl Rainforest {
             turn: (self.rng.next() - 0.5) * 0.25,
             ph: self.rng.next() * 6.28,
             timer: 2.0 + self.rng.next() * 4.0,
+            boost: 0.0,
         }
     }
 
@@ -106,6 +112,7 @@ impl Rainforest {
             let r1 = self.rng.next();
             let r2 = self.rng.next();
             let b = &mut self.birds[i];
+            b.boost = (b.boost - dt * 0.55).max(0.0);
             b.timer -= dt;
             if b.timer <= 0.0 {
                 b.turn = (r1 - 0.5) * 0.55;
@@ -123,10 +130,11 @@ impl Rainforest {
             if b.y > h2 - m {
                 b.turn -= if b.a.sin() > 0.0 { 0.8 } else { 0.3 } * dt;
             }
+            let mult = 1.0 + 0.7 * b.boost;
             b.a += b.turn * dt;
-            b.x += b.a.cos() * b.sp * dt;
-            b.y += b.a.sin() * b.sp * dt;
-            b.ph += dt * 7.5;
+            b.x += b.a.cos() * b.sp * mult * dt;
+            b.y += b.a.sin() * b.sp * mult * dt;
+            b.ph += dt * (7.5 + 5.5 * b.boost);
         }
     }
 
@@ -142,23 +150,48 @@ impl Rainforest {
     }
 
     fn step_flies(&mut self, dt: f32) {
-        let want = self.p.fireflies.round().clamp(0.0, 15.0) as usize;
+        let base_want = self.p.fireflies.round().clamp(0.0, 15.0) as usize;
+        let want = if self.attract.is_some() { base_want.max(12) } else { base_want };
         self.flies.truncate(want);
         while self.flies.len() < want {
-            let f = self.spawn_fly();
+            let mut f = self.spawn_fly();
+            if let Some((tx, ty, _)) = self.attract {
+                let ang = self.rng.next() * PI * 2.0;
+                let dist = 90.0 + self.rng.next() * 160.0;
+                f.x = (tx + ang.cos() * dist).clamp(24.0, self.b.w - 24.0);
+                f.y = (ty + ang.sin() * dist).clamp(24.0, (self.b.h - TASKBAR - 24.0).max(40.0));
+            }
             self.flies.push(f);
         }
         let (w, h2) = (self.b.w, self.b.h - TASKBAR);
+        let attract = self.attract;
         for i in 0..self.flies.len() {
             let rx = self.rng.next();
             let ry = self.rng.next();
             let f = &mut self.flies[i];
-            f.vx += (rx - 0.5) * 18.0 * dt;
-            f.vy += (ry - 0.5) * 18.0 * dt;
-            let sp = f.vx.hypot(f.vy);
-            if sp > 18.0 {
-                f.vx = (f.vx / sp) * 18.0;
-                f.vy = (f.vy / sp) * 18.0;
+            if let Some((tx, ty, _)) = attract {
+                let dx = tx - f.x;
+                let dy = ty - f.y;
+                let dist = dx.hypot(dy).max(1.0);
+                let pull = if dist > 36.0 { 115.0 } else { -28.0 };
+                let swirl = if i % 2 == 0 { 1.0 } else { -1.0 };
+                f.vx += ((dx / dist) * pull + (-dy / dist) * 42.0 * swirl + (rx - 0.5) * 26.0) * dt;
+                f.vy += ((dy / dist) * pull + (dx / dist) * 42.0 * swirl + (ry - 0.5) * 26.0) * dt;
+                f.vx *= (1.0 - 1.4 * dt).max(0.0);
+                f.vy *= (1.0 - 1.4 * dt).max(0.0);
+                let sp = f.vx.hypot(f.vy);
+                if sp > 88.0 {
+                    f.vx = (f.vx / sp) * 88.0;
+                    f.vy = (f.vy / sp) * 88.0;
+                }
+            } else {
+                f.vx += (rx - 0.5) * 18.0 * dt;
+                f.vy += (ry - 0.5) * 18.0 * dt;
+                let sp = f.vx.hypot(f.vy);
+                if sp > 18.0 {
+                    f.vx = (f.vx / sp) * 18.0;
+                    f.vy = (f.vy / sp) * 18.0;
+                }
             }
             f.x += f.vx * dt;
             f.y += f.vy * dt;
@@ -185,7 +218,17 @@ impl Rainforest {
         }
         let mut fly = [0f32; 60];
         for (i, f) in self.flies.iter().enumerate() {
-            fly[i * 4..i * 4 + 4].copy_from_slice(&[f.x, f.y, f.ph, f.alpha]);
+            let glow_mult = if let Some((tx, ty, ttl)) = self.attract {
+                let d = (f.x - tx).hypot(f.y - ty);
+                1.0 + 0.85 * (1.0 - (d / 260.0).min(1.0)) * (ttl / 1.2).min(1.0)
+            } else {
+                1.0
+            };
+            fly[i * 4..i * 4 + 4].copy_from_slice(&[f.x, f.y, f.ph, f.alpha * glow_mult]);
+        }
+        let mut rip = [0f32; 24];
+        for (i, r) in self.ripples.iter().take(6).enumerate() {
+            rip[i * 4..i * 4 + 4].copy_from_slice(r);
         }
         let p = &mut sh.prog;
         unsafe { gl.use_program(Some(p.prog)) };
@@ -197,6 +240,7 @@ impl Rainforest {
         p.f4v(gl, "uBird", &bird);
         p.f1(gl, "uFlyN", self.flies.len() as f32);
         p.f4v(gl, "uFly", &fly);
+        p.f4v(gl, "uRip", &rip);
         unsafe { gl.draw_arrays(glow::TRIANGLES, 0, 3) };
     }
 }
@@ -209,6 +253,16 @@ impl Theme for Rainforest {
 
     fn frame(&mut self, gl: &glow::Context, sh: &mut Shared, dt: f32, now: f64) {
         self.b.update_mix(now);
+        self.ripples.retain_mut(|r| {
+            r[2] += dt;
+            r[2] < 2.8
+        });
+        if let Some((_, _, ttl)) = &mut self.attract {
+            *ttl -= dt;
+            if *ttl <= 0.0 {
+                self.attract = None;
+            }
+        }
         self.step_birds(dt);
         self.step_flies(dt);
         self.draw(gl, sh, now);
@@ -217,6 +271,29 @@ impl Theme for Rainforest {
     fn settle(&mut self, gl: &glow::Context, sh: &mut Shared, now: f64) {
         self.b.settle();
         self.draw(gl, sh, now);
+    }
+
+    fn handle_click(&mut self, _gl: &glow::Context, x: f32, y: f32, _now: f64) {
+        if self.ripples.len() >= 6 {
+            self.ripples.remove(0);
+        }
+        self.ripples.push([x, y, 0.0, 1.35]);
+        self.attract = Some((x, y, 4.5));
+
+        for b in &mut self.birds {
+            if (b.x - x).hypot(b.y - y) < 520.0 {
+                let target = (y - b.y).atan2(x - b.x) + (self.rng.next() - 0.5) * 0.45;
+                let mut d = target - b.a;
+                d = d.sin().atan2(d.cos());
+                b.a += d * 0.75;
+                b.boost = 1.0;
+                b.timer = 2.0;
+            }
+        }
+    }
+
+    fn is_interacting(&self, _now: f64) -> bool {
+        !self.ripples.is_empty() || self.attract.is_some()
     }
 
     fn destroy(&mut self, gl: &glow::Context) {

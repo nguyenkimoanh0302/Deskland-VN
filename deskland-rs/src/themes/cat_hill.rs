@@ -40,6 +40,7 @@ struct Cat {
     ph: f32,
     wait: f32,
     sc: f32,
+    happy: f32,
 }
 
 struct Butterfly {
@@ -62,6 +63,7 @@ struct Leaf {
     rest: f32,
     fade: f32,
     ground_y: f32,
+    extra: bool,
 }
 
 pub struct CatHill {
@@ -71,6 +73,8 @@ pub struct CatHill {
     cats: Vec<Cat>,
     butterflies: Vec<Butterfly>,
     leaves: Vec<Leaf>,
+    toy: Option<[f32; 4]>,
+    tree_shake: f32,
     t0: f64,
 }
 
@@ -83,6 +87,8 @@ impl CatHill {
             cats: Vec::new(),
             butterflies: Vec::new(),
             leaves: Vec::new(),
+            toy: None,
+            tree_shake: 0.0,
             t0: now,
         };
         s.b.commit(gl, &[], 80.0, 30.0, true, now);
@@ -117,6 +123,7 @@ impl CatHill {
                 ph: self.rng.next() * 6.28,
                 wait: 0.0,
                 sc: 0.96,
+                happy: 0.0,
             };
         }
         if idx == 1 {
@@ -131,6 +138,7 @@ impl CatHill {
                 ph: self.rng.next() * 6.28,
                 wait: 0.0,
                 sc: 0.96,
+                happy: 0.0,
             };
         }
         if idx == 2 {
@@ -145,6 +153,7 @@ impl CatHill {
                 ph: self.rng.next() * 6.28,
                 wait: 0.0,
                 sc: 0.98,
+                happy: 0.0,
             };
         }
         if idx == 3 {
@@ -159,6 +168,7 @@ impl CatHill {
                 ph: self.rng.next() * 6.28,
                 wait: 0.0,
                 sc: 0.86,
+                happy: 0.0,
             };
         }
         let (x, y) = self.random_hill_pos();
@@ -175,6 +185,7 @@ impl CatHill {
             ph: self.rng.next() * 6.28,
             wait: if self.rng.next() < 0.35 { 1.5 + self.rng.next() * 3.0 } else { 0.0 },
             sc: depth_scale,
+            happy: 0.0,
         }
     }
 
@@ -208,6 +219,7 @@ impl CatHill {
             rest: if is_ground { 1.5 + self.rng.next() * 3.5 } else { 0.0 },
             fade: 1.0,
             ground_y,
+            extra: false,
         }
     }
 
@@ -247,8 +259,18 @@ impl CatHill {
         let (w, h) = (self.b.w, self.b.h);
         let sp_mul = self.p.speed;
         let wind = self.p.wind;
+        self.tree_shake = (self.tree_shake - dt * 0.75).max(0.0);
+        if let Some(toy) = &mut self.toy {
+            toy[2] += dt;
+            toy[3] -= dt;
+            if toy[3] <= 0.0 {
+                self.toy = None;
+            }
+        }
+        let has_toy = self.toy.map(|t| (t[0], t[1]));
 
         for i in 0..self.cats.len() {
+            self.cats[i].happy = (self.cats[i].happy - dt).max(0.0);
             if self.cats[i].mode != 3 {
                 self.cats[i].ph += dt * (1.2 + 0.8 * sp_mul);
                 continue;
@@ -262,23 +284,37 @@ impl CatHill {
             let dy = self.cats[i].ty - self.cats[i].y;
             let d = dx.hypot(dy);
             if d < 10.0 {
-                let (ntx, nty) = self.random_hill_pos();
-                let r1 = self.rng.next();
-                let r2 = self.rng.next();
-                self.cats[i].tx = ntx;
-                self.cats[i].ty = nty;
-                if r1 < 0.45 {
-                    self.cats[i].wait = 2.0 + r2 * 3.5;
+                if let Some((tx_toy, _)) = has_toy {
+                    self.cats[i].dir = if tx_toy >= self.cats[i].x { 1.0 } else { -1.0 };
+                    self.cats[i].wait = 0.8;
+                } else {
+                    let (ntx, nty) = self.random_hill_pos();
+                    let r1 = self.rng.next();
+                    let r2 = self.rng.next();
+                    self.cats[i].tx = ntx;
+                    self.cats[i].ty = nty;
+                    if r1 < 0.45 {
+                        self.cats[i].wait = 2.0 + r2 * 3.5;
+                    }
                 }
             } else {
-                let sp = 22.0 * sp_mul.max(0.2);
+                let chase = if let Some((tx_toy, ty_toy)) = has_toy {
+                    if (self.cats[i].tx - tx_toy).hypot(self.cats[i].ty - ty_toy) < 60.0 {
+                        1.85
+                    } else {
+                        1.0
+                    }
+                } else {
+                    1.0
+                };
+                let sp = 22.0 * sp_mul.max(0.25) * chase;
                 let c = &mut self.cats[i];
                 c.x += (dx / d) * sp * dt;
-                c.y += (dy / d) * sp * 0.72 * dt;
+                c.y += (dy / d) * sp * 0.75 * dt;
                 if dx.abs() > 1.5 {
                     c.dir = if dx > 0.0 { 1.0 } else { -1.0 };
                 }
-                c.ph += dt * 6.5 * sp_mul.max(0.3);
+                c.ph += dt * 6.5 * sp_mul.max(0.3) * chase;
                 c.sc = 0.80 + ((c.y - h * 0.3) / (h * 0.7)).clamp(0.0, 1.0) * 0.26;
             }
         }
@@ -291,9 +327,18 @@ impl CatHill {
             let b = &mut self.butterflies[i];
             b.timer -= dt;
             if b.timer <= 0.0 {
-                b.vx = (r1 - 0.5) * 34.0;
-                b.vy = (r2 - 0.5) * 18.0;
-                b.timer = 1.2 + r3 * 2.5;
+                if let Some((tx_toy, ty_toy)) = has_toy {
+                    let dx = tx_toy - b.x;
+                    let dy = (ty_toy - 22.0) - b.y;
+                    let dist = dx.hypot(dy).max(1.0);
+                    b.vx = (dx / dist) * 28.0 + (r1 - 0.5) * 16.0;
+                    b.vy = (dy / dist) * 18.0 + (r2 - 0.5) * 12.0;
+                    b.timer = 0.8 + r3 * 1.2;
+                } else {
+                    b.vx = (r1 - 0.5) * 34.0;
+                    b.vy = (r2 - 0.5) * 18.0;
+                    b.timer = 1.2 + r3 * 2.5;
+                }
             }
             b.x += b.vx * dt;
             b.y += b.vy * dt + (b.ph * 0.7).sin() * 8.0 * dt;
@@ -312,7 +357,9 @@ impl CatHill {
             }
         }
 
-        for i in 0..self.leaves.len() {
+        let mut i = self.leaves.len();
+        while i > 0 {
+            i -= 1;
             if self.leaves[i].state == 0 {
                 let r_rest = self.rng.next();
                 let lf = &mut self.leaves[i];
@@ -326,7 +373,11 @@ impl CatHill {
                     lf.fade = 1.0;
                 }
                 if lf.x < -30.0 || lf.y > h + 20.0 {
-                    self.leaves[i] = self.spawn_leaf(false);
+                    if self.leaves[i].extra {
+                        self.leaves.remove(i);
+                    } else {
+                        self.leaves[i] = self.spawn_leaf(false);
+                    }
                 }
             } else {
                 let r_blow = self.rng.next();
@@ -340,7 +391,11 @@ impl CatHill {
                 } else if lf.rest <= 0.0 {
                     lf.fade -= dt * 0.7;
                     if lf.fade <= 0.0 {
-                        self.leaves[i] = self.spawn_leaf(false);
+                        if self.leaves[i].extra {
+                            self.leaves.remove(i);
+                        } else {
+                            self.leaves[i] = self.spawn_leaf(false);
+                        }
                     }
                 }
             }
@@ -356,27 +411,30 @@ impl CatHill {
         for (slot, &idx) in order.iter().enumerate() {
             let c = &self.cats[idx];
             cat_pos[slot * 4..slot * 4 + 4].copy_from_slice(&[c.x, c.y, c.sc * c.dir, c.ph]);
-            cat_meta[slot * 4..slot * 4 + 4].copy_from_slice(&[c.mode as f32, c.fur_idx as f32, 0.0, 0.0]);
+            cat_meta[slot * 4..slot * 4 + 4].copy_from_slice(&[c.mode as f32, c.fur_idx as f32, c.happy, 0.0]);
         }
         let mut bfly = [0f32; 24];
         for (i, bf) in self.butterflies.iter().enumerate() {
             bfly[i * 4..i * 4 + 4].copy_from_slice(&[bf.x, bf.y, if bf.vx >= 0.0 { 1.0 } else { -1.0 }, bf.ph]);
         }
         let mut leaf = [0f32; 112];
-        for (i, lf) in self.leaves.iter().enumerate() {
+        for (i, lf) in self.leaves.iter().take(28).enumerate() {
             leaf[i * 4..i * 4 + 4].copy_from_slice(&[lf.x, lf.y, lf.rot, lf.fade]);
         }
+        let toy = self.toy.unwrap_or([0.0, 0.0, 0.0, 0.0]);
 
         let p = &mut sh.prog;
         unsafe { gl.use_program(Some(p.prog)) };
         self.b.bind_common(gl, p, sh.noise_tex, sh.seed, t);
         p.f1(gl, "uWind", self.p.wind);
+        p.f1(gl, "uTreeShake", self.tree_shake);
         p.f1(gl, "uCatN", self.cats.len() as f32);
         p.f4v(gl, "uCatPos", &cat_pos);
         p.f4v(gl, "uCatMeta", &cat_meta);
+        p.f4v(gl, "uToy", &toy);
         p.f1(gl, "uBflyN", self.butterflies.len() as f32);
         p.f4v(gl, "uBfly", &bfly);
-        p.f1(gl, "uLeafN", self.leaves.len() as f32);
+        p.f1(gl, "uLeafN", self.leaves.len().min(28) as f32);
         p.f4v(gl, "uLeaf", &leaf);
         unsafe { gl.draw_arrays(glow::TRIANGLES, 0, 3) };
     }
@@ -394,6 +452,116 @@ impl Theme for CatHill {
 
     fn settle(&mut self, gl: &glow::Context, sh: &mut Shared, now: f64) {
         self.draw(gl, sh, now);
+    }
+
+    fn handle_click(&mut self, _gl: &glow::Context, x: f32, y: f32, _now: f64) {
+        // 1. Kiểm tra click trực tiếp vào chú mèo để vuốt ve
+        let mut best_cat: Option<(usize, f32)> = None;
+        for (i, c) in self.cats.iter().enumerate() {
+            let d = (c.x - x).hypot(c.y - y);
+            if d < 40.0 * c.sc.max(0.85) && best_cat.map_or(true, |(_, bd)| d < bd) {
+                best_cat = Some((i, d));
+            }
+        }
+        if let Some((idx, _)) = best_cat {
+            let c = &mut self.cats[idx];
+            c.happy = 2.6;
+            if c.mode == 3 {
+                c.wait = 2.2;
+                if (x - c.x).abs() > 2.0 {
+                    c.dir = if x >= c.x { 1.0 } else { -1.0 };
+                }
+            } else {
+                c.mode = match c.mode {
+                    0 => 1,
+                    1 => 2,
+                    _ => 0,
+                };
+            }
+            return;
+        }
+
+        let (w, h) = (self.b.w, self.b.h);
+        let nx = (x / w.max(1.0)).clamp(0.0, 1.0);
+        let ny = (y / h.max(1.0)).clamp(0.0, 1.0);
+        let hy = self.hill_y(nx);
+        let in_border_canopy = (nx > 0.88 && ny < 0.54) || (nx < 0.11 && ny < 0.42);
+
+        // 2. Click lên tán cây / bầu trời -> Rung cây làm lá rơi lả tả
+        if y < hy + 8.0 || in_border_canopy {
+            self.tree_shake = 1.0;
+            for _ in 0..7 {
+                let lx = (x + (self.rng.next() - 0.5) * 64.0).clamp(16.0, w - 16.0);
+                let ly = (y + (self.rng.next() - 0.5) * 36.0).clamp(16.0, h - TASKBAR - 80.0);
+                let min_gy = self.hill_y((lx / w.max(1.0)).clamp(0.0, 1.0)) + 28.0;
+                let max_gy = (h - TASKBAR - 28.0).max(min_gy + 20.0);
+                let ground_y = min_gy + self.rng.next() * (max_gy - min_gy);
+                let new_leaf = Leaf {
+                    x: lx,
+                    y: ly,
+                    vy: 18.0 + self.rng.next() * 16.0,
+                    vx: (self.rng.next() - 0.65) * 34.0,
+                    rot: self.rng.next() * 6.28,
+                    vrot: (self.rng.next() - 0.5) * 4.2,
+                    state: 0,
+                    rest: 0.0,
+                    fade: 1.0,
+                    ground_y,
+                    extra: true,
+                };
+                if self.leaves.len() < 28 {
+                    self.leaves.push(new_leaf);
+                } else if let Some(slot) = self.leaves.iter().position(|l| l.state == 1) {
+                    let keep_permanent = !self.leaves[slot].extra;
+                    self.leaves[slot] = Leaf { extra: !keep_permanent, ..new_leaf };
+                }
+            }
+            return;
+        }
+
+        // 3. Click lên sườn đồi cỏ -> Thả cuộn len đồ chơi gọi đàn mèo chạy tới
+        let ty_clamped = y.clamp(hy + 26.0, (h - TASKBAR - 34.0).max(hy + 28.0));
+        self.toy = Some([x, ty_clamped, 0.0, 7.0]);
+
+        if !self.cats.iter().any(|c| c.mode == 3) && self.cats.len() > 1 {
+            let wake_idx = (1..self.cats.len())
+                .min_by(|&a, &b| {
+                    let da = (self.cats[a].x - x).hypot(self.cats[a].y - ty_clamped);
+                    let db = (self.cats[b].x - x).hypot(self.cats[b].y - ty_clamped);
+                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .unwrap_or(1);
+            self.cats[wake_idx].mode = 3;
+        }
+
+        let mut walker_rank = 0usize;
+        for c in &mut self.cats {
+            if c.mode == 3 {
+                let ang = walker_rank as f32 * 1.65 + 0.4;
+                let rad = 24.0 + (walker_rank % 3) as f32 * 8.0;
+                c.tx = (x + ang.cos() * rad).clamp(36.0, w - 36.0);
+                let min_cy = hy + 22.0;
+                c.ty = (ty_clamped + ang.sin() * rad * 0.55).clamp(min_cy, (h - TASKBAR - 30.0).max(min_cy));
+                c.wait = 0.0;
+                walker_rank += 1;
+            }
+        }
+
+        for bf in &mut self.butterflies {
+            let dx = x - bf.x;
+            let dy = (ty_clamped - 22.0) - bf.y;
+            let dist = dx.hypot(dy).max(1.0);
+            bf.vx = (dx / dist) * 32.0;
+            bf.vy = (dy / dist) * 20.0;
+            bf.timer = 1.4;
+        }
+    }
+
+    fn is_interacting(&self, _now: f64) -> bool {
+        self.toy.is_some()
+            || self.tree_shake > 0.01
+            || self.cats.iter().any(|c| c.happy > 0.01)
+            || self.leaves.iter().any(|l| l.extra && l.state == 0)
     }
 
     fn destroy(&mut self, gl: &glow::Context) {

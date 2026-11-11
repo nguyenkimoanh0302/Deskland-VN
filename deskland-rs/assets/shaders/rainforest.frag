@@ -7,6 +7,7 @@ uniform vec4 uBird[8];
 uniform float uBirdN;
 uniform vec4 uFly[15];
 uniform float uFlyN;
+uniform vec4 uRip[6];
 out vec4 o;
 
 // Bảng màu khoảng trống rêu xanh ẩm ướt
@@ -185,6 +186,32 @@ void main() {
       col *= 1.0 - 0.15 * L2.a;
       col = mix(col, L2.rgb * 1.03, L2.a);
     }
+  }
+
+  // ---------- Gợn sóng vũng nước mưa & giọt nước bắn khi tương tác click ----------
+  for (int i = 0; i < 6; i++) {
+    vec4 rp = uRip[i];
+    if (rp.w <= 0.0) continue;
+    vec2 dp = p - rp.xy;
+    float d2 = dot(dp, dp);
+    if (d2 > 140.0 * 140.0) continue;
+    float d = sqrt(d2);
+    float age = rp.z;
+    float fade = (1.0 - ss(1.5, 2.8, age)) * min(rp.w, 1.4);
+    float r1 = 4.0 + age * 45.0;
+    float r2 = max(0.0, (age - 0.20) * 34.0);
+    float ring = (1.0 - ss(0.5, 2.6, abs(d - r1))) * fade;
+    if (age > 0.20) {
+      ring = max(ring, (1.0 - ss(0.5, 2.2, abs(d - r2))) * fade * 0.72);
+    }
+    if (age < 0.45) {
+      float cr = 3.0 + age * 28.0;
+      float drops = (1.0 - ss(0.6, 2.4, abs(d - cr))) * max(0.0, cos(atan(dp.y, dp.x) * 9.0 + float(i))) * (1.0 - age / 0.45);
+      ring = max(ring, drops * 1.15);
+    }
+    float vis = mix(0.68, 0.46, ss(-4.0, 24.0, s));
+    col = mix(col, vec3(0.78, 0.96, 0.88), clamp(ring * vis, 0.0, 0.85));
+    col += vec3(0.58, 0.92, 0.40) * exp(-d / 44.0) * (1.0 - ss(0.9, 2.6, age)) * 0.16;
   }
 
   // ---------- Chim nhiệt đới ----------

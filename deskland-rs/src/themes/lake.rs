@@ -1,7 +1,9 @@
-//! Chủ đề Hồ nước (lake.html): bờ cỏ màu nước bao quanh mặt hồ trong vắt, đá cuội nước nông và bóng mây phản chiếu.
+//! Chủ đề Hồ nước (lake.html): bờ cỏ màu nước bao quanh mặt hồ trong vắt, đá cuội nước nông,
+//! bóng mây phản chiếu và mini-game câu cá thư giãn khi nhấn chuột vào mặt hồ.
 
 use crate::engine::*;
 use glow::HasContext;
+use std::f32::consts::PI;
 
 pub const FRAG: &str = include_str!("../../assets/shaders/lake.frag");
 
@@ -41,17 +43,44 @@ struct SkyCloud {
     dying: bool,
 }
 
+struct LakeFish {
+    x: f32,
+    y: f32,
+    h: f32,
+    v: f32,
+    ph: f32,
+    wander: f32,
+    koi: f32, // 0.0 = cá xanh đen tự nhiên, 1.0 = cá Koi cam vàng
+}
+
+enum FishingState {
+    Idle,
+    Casting { from: (f32, f32), to: (f32, f32), age: f32, dur: f32 },
+    Waiting { from: (f32, f32), bob: (f32, f32), age: f32, bite_at: f32 },
+    Hooked { from: (f32, f32), bob: (f32, f32), age: f32, next_rip: f32, window: f32 },
+    Catching { from: (f32, f32), start: (f32, f32), age: f32, dur: f32 },
+    ReelingEmpty { from: (f32, f32), start: (f32, f32), age: f32, dur: f32 },
+}
+
 pub struct Lake {
     b: Base,
     p: Params,
     rng: Rng,
     sky: Vec<SkyCloud>,
+    fishes: Vec<LakeFish>,
+    ripples: Vec<[f32; 4]>, // x, y, age, strength
+    fishing: FishingState,
     flow_t: f32,
     circ_tex: Option<glow::Texture>,
     circ_buf: Vec<f32>,
     cg_w: usize,
     cg_h: usize,
     t0: f64,
+}
+
+fn turn_toward(h: f32, target: f32, rate: f32) -> f32 {
+    let d = (target - h).sin().atan2((target - h).cos());
+    h + d.signum() * d.abs().min(rate)
 }
 
 impl Lake {
@@ -61,6 +90,9 @@ impl Lake {
             p,
             rng: Rng::new(rng_seed),
             sky: Vec::new(),
+            fishes: Vec::new(),
+            ripples: Vec::new(),
+            fishing: FishingState::Idle,
             flow_t: 0.0,
             circ_tex: None,
             circ_buf: Vec::new(),
@@ -75,6 +107,194 @@ impl Lake {
     fn commit(&mut self, gl: &glow::Context, from_empty: bool, now: f64) {
         let rects = icon_rects(&self.b.icons);
         self.b.commit(gl, &rects, self.p.sigma, self.p.warp, from_empty, now);
+    }
+
+    fn push_ripple(&mut self, x: f32, y: f32, strength: f32) {
+        if self.ripples.len() >= 6 {
+            self.ripples.remove(0);
+        }
+        self.ripples.push([x, y, 0.0, strength]);
+    }
+
+    fn find_rod_anchor(&self, tx: f32, ty: f32) -> (f32, f32) {
+        let mut best: Option<(f32, f32, f32)> = None;
+        for dir_i in 0..24 {
+            let ang = dir_i as f32 * (PI * 2.0 / 24.0);
+            let (dx, dy) = (ang.cos(), ang.sin());
+            let mut dist = 24.0;
+            while dist <= 460.0 {
+                let (px, py) = (tx + dx * dist, ty + dy * dist);
+                if px >= 12.0 && px <= self.b.w - 12.0 && py >= 12.0 && py <= self.b.h - TASKBAR - 8.0 && self.b.cur_s(px, py) <= -3.0 {
+                    if best.is_none_or(|b| dist < b.2) {
+                        best = Some((px, py, dist));
+                    }
+                    break;
+                }
+                dist += 16.0;
+            }
+        }
+        if let Some((bx, by, _)) = best {
+            (bx, by)
+        } else {
+            let ax = (tx + 38.0).clamp(60.0, self.b.w - 60.0);
+            let ay = self.b.h + 8.0;
+            (ax, ay)
+        }
+    }
+
+    fn spawn_fish(&mut self, idx: usize) -> Option<LakeFish> {
+        let (w, h) = (self.b.w, self.b.h);
+        for _ in 0..250 {
+            let x = 60.0 + self.rng.next() * (w - 120.0);
+            let y = 60.0 + self.rng.next() * (h - TASKBAR - 120.0);
+            if self.b.cur_s(x, y) > 55.0 {
+                return Some(LakeFish {
+                    x,
+                    y,
+                    h: self.rng.next() * PI * 2.0,
+                    v: 11.0 + self.rng.next() * 6.0,
+                    ph: self.rng.next() * 6.28,
+                    wander: self.rng.next() * 80.0,
+                    koi: if idx == 0 { 1.0 } else if self.rng.next() < 0.45 { 1.0 } else { 0.0 },
+                });
+            }
+        }
+        None
+    }
+
+    fn sync_fishes(&mut self) {
+        while self.fishes.len() < 4 {
+            let idx = self.fishes.len();
+            match self.spawn_fish(idx) {
+                Some(f) => self.fishes.push(f),
+                None => break,
+            }
+        }
+    }
+
+    fn step_fishes_and_fishing(&mut self, dt: f32) {
+        // Cập nhật các vòng gợn sóng
+        let mut r_i = self.ripples.len();
+        while r_i > 0 {
+            r_i -= 1;
+            self.ripples[r_i][2] += dt;
+            if self.ripples[r_i][2] > 3.2 {
+                self.ripples.remove(r_i);
+            }
+        }
+
+        // Cập nhật máy trạng thái câu cá
+        let mut spawn_rip: Option<(f32, f32, f32)> = None;
+        let next_state = match &mut self.fishing {
+            FishingState::Idle => None,
+            FishingState::Casting { from, to, age, dur } => {
+                *age += dt;
+                if *age >= *dur {
+                    let (fx, fy) = *from;
+                    let (tx, ty) = *to;
+                    spawn_rip = Some((tx, ty, 1.0));
+                    let bite_at = 2.8 + self.rng.next() * 2.8;
+                    Some(FishingState::Waiting { from: (fx, fy), bob: (tx, ty), age: 0.0, bite_at })
+                } else {
+                    None
+                }
+            }
+            FishingState::Waiting { from, bob, age, bite_at } => {
+                *age += dt;
+                if *age >= *bite_at {
+                    let (fx, fy) = *from;
+                    let (bx, by) = *bob;
+                    spawn_rip = Some((bx, by, 1.15));
+                    Some(FishingState::Hooked { from: (fx, fy), bob: (bx, by), age: 0.0, next_rip: 0.38, window: 3.2 })
+                } else {
+                    None
+                }
+            }
+            FishingState::Hooked { from, bob, age, next_rip, window } => {
+                *age += dt;
+                *next_rip -= dt;
+                if *next_rip <= 0.0 {
+                    *next_rip = 0.42;
+                    spawn_rip = Some((bob.0, bob.1, 0.95));
+                }
+                if *age >= *window {
+                    let (fx, fy) = *from;
+                    let (bx, by) = *bob;
+                    Some(FishingState::ReelingEmpty { from: (fx, fy), start: (bx, by), age: 0.0, dur: 0.55 })
+                } else {
+                    None
+                }
+            }
+            FishingState::Catching { age, dur, .. } => {
+                *age += dt;
+                if *age >= *dur { Some(FishingState::Idle) } else { None }
+            }
+            FishingState::ReelingEmpty { age, dur, .. } => {
+                *age += dt;
+                if *age >= *dur { Some(FishingState::Idle) } else { None }
+            }
+        };
+        if let Some(ns) = next_state {
+            self.fishing = ns;
+        }
+        if let Some((rx, ry, rs)) = spawn_rip {
+            self.push_ripple(rx, ry, rs);
+        }
+
+        // Điểm thu hút cá khi đang thả phao
+        let lure_target = match &self.fishing {
+            FishingState::Waiting { bob, .. } | FishingState::Hooked { bob, .. } => Some(*bob),
+            _ => None,
+        };
+
+        let (w, h) = (self.b.w, self.b.h);
+        for i in 0..self.fishes.len() {
+            let (fx, fy, fh) = (self.fishes[i].x, self.fishes[i].y, self.fishes[i].h);
+            let mut speed_mul = 1.0f32;
+            let ax = fx + fh.cos() * 48.0;
+            let ay = fy + fh.sin() * 48.0;
+            let margin = ax < 36.0 || ay < 36.0 || ax > w - 36.0 || ay > h - TASKBAR - 36.0;
+            let mut new_h = fh;
+            if self.b.cur_s(ax, ay) < 34.0 || margin {
+                let mut gx = self.b.cur_s(fx + 10.0, fy) - self.b.cur_s(fx - 10.0, fy);
+                let mut gy = self.b.cur_s(fx, fy + 10.0) - self.b.cur_s(fx, fy - 10.0);
+                if margin {
+                    gx += (w * 0.5 - fx) * 0.025;
+                    gy += ((h - TASKBAR) * 0.5 - fy) * 0.025;
+                }
+                new_h = turn_toward(fh, gy.atan2(gx), 1.8 * dt);
+            } else if let Some((bx, by)) = lure_target {
+                let dist = (bx - fx).hypot(by - fy);
+                if i == 0 || dist < 240.0 {
+                    let desired = if dist > 18.0 {
+                        (by - fy).atan2(bx - fx)
+                    } else {
+                        (by - fy).atan2(bx - fx) + 1.2
+                    };
+                    new_h = turn_toward(fh, desired, 2.2 * dt);
+                    speed_mul = if dist > 28.0 { 1.55 } else { 0.75 };
+                } else {
+                    self.fishes[i].wander += dt * 0.4;
+                    let wv = self.b.noise.vnoise(self.fishes[i].wander as f64, i as f64 * 9.1, 0) as f32;
+                    new_h += (wv - 0.5) * 0.5 * dt;
+                }
+            } else {
+                self.fishes[i].wander += dt * 0.4;
+                let wv = self.b.noise.vnoise(self.fishes[i].wander as f64, i as f64 * 9.1, 0) as f64 as f32;
+                new_h += (wv - 0.5) * 0.5 * dt;
+            }
+            let f = &mut self.fishes[i];
+            f.h = new_h;
+            f.ph = (f.ph + dt * 5.2 * speed_mul) % (PI * 2.0);
+            let v = f.v * speed_mul;
+            f.x += f.h.cos() * v * dt;
+            f.y += f.h.sin() * v * dt;
+            if self.b.cur_s(f.x, f.y) < 12.0 {
+                if let Some(nf) = self.spawn_fish(i) {
+                    self.fishes[i] = nf;
+                }
+            }
+        }
     }
 
     fn make_sky_cloud(&mut self, x: f32) -> SkyCloud {
@@ -280,6 +500,47 @@ impl Lake {
     fn draw(&mut self, gl: &glow::Context, sh: &mut Shared, now: f64) {
         let t = ((now - self.t0) / 1000.0) as f32;
         self.upload_circles(gl);
+
+        let mut rip = [0f32; 24];
+        for (i, r) in self.ripples.iter().take(6).enumerate() {
+            rip[i * 4..i * 4 + 4].copy_from_slice(r);
+        }
+        let mut fish = [0f32; 16];
+        for (i, f) in self.fishes.iter().take(4).enumerate() {
+            fish[i * 4..i * 4 + 4].copy_from_slice(&[f.x, f.y, f.h, f.ph + f.koi * 100.0]);
+        }
+        // uRod[0] = (from_x, from_y, cur_x, cur_y), uRod[1] = (mode, progress, start_x, start_y)
+        // mode: 0 = ẩn, 1 = đang quăng, 2 = đang chờ, 3 = cá cắn câu!, 4 = giật cá Koi nhảy lên!, 5 = thu cần không cá
+        let rod = match &self.fishing {
+            FishingState::Idle => [0f32; 8],
+            FishingState::Casting { from, to, age, dur } => {
+                let k = (*age / *dur).clamp(0.0, 1.0);
+                let ease = 1.0 - (1.0 - k) * (1.0 - k);
+                let cx = from.0 + (to.0 - from.0) * ease;
+                let cy = from.1 + (to.1 - from.1) * ease - (k * PI).sin() * 42.0;
+                [from.0, from.1, cx, cy, 1.0, k, to.0, to.1]
+            }
+            FishingState::Waiting { from, bob, age, .. } => {
+                [from.0, from.1, bob.0, bob.1, 2.0, *age, bob.0, bob.1]
+            }
+            FishingState::Hooked { from, bob, age, .. } => {
+                [from.0, from.1, bob.0, bob.1, 3.0, *age, bob.0, bob.1]
+            }
+            FishingState::Catching { from, start, age, dur } => {
+                let k = (*age / *dur).clamp(0.0, 1.0);
+                let ease = k * k * (3.0 - 2.0 * k);
+                let cx = start.0 + (from.0 - start.0) * ease;
+                let cy = start.1 + (from.1 - start.1) * ease - (k * PI).sin() * 54.0;
+                [from.0, from.1, cx, cy, 4.0, k, start.0, start.1]
+            }
+            FishingState::ReelingEmpty { from, start, age, dur } => {
+                let k = (*age / *dur).clamp(0.0, 1.0);
+                let cx = start.0 + (from.0 - start.0) * k;
+                let cy = start.1 + (from.1 - start.1) * k - (k * PI).sin() * 18.0;
+                [from.0, from.1, cx, cy, 5.0, k, start.0, start.1]
+            }
+        };
+
         let p = &mut sh.prog;
         unsafe { gl.use_program(Some(p.prog)) };
         self.b.bind_common(gl, p, sh.noise_tex, sh.seed, t);
@@ -293,6 +554,10 @@ impl Lake {
         p.f1(gl, "uShoal", self.p.shoal);
         p.f1(gl, "uDepth", self.p.depth);
         p.f1(gl, "uFlow", self.p.flow);
+        p.f4v(gl, "uRip", &rip);
+        p.f1(gl, "uFishN", self.fishes.len() as f32);
+        p.f4v(gl, "uFish", &fish);
+        p.f4v(gl, "uRod", &rod);
         unsafe { gl.draw_arrays(glow::TRIANGLES, 0, 3) };
     }
 }
@@ -301,17 +566,73 @@ impl Theme for Lake {
     fn set_icons(&mut self, gl: &glow::Context, icons: Vec<IconBox>, first: bool, now: f64) {
         self.b.icons = icons;
         self.commit(gl, first, now);
+        if first {
+            self.b.cur_mix = 1.0;
+            self.fishes.clear();
+            self.sync_fishes();
+            self.b.cur_mix = 0.0;
+        }
     }
 
     fn frame(&mut self, gl: &glow::Context, sh: &mut Shared, dt: f32, now: f64) {
         self.b.update_mix(now);
+        if self.fishes.is_empty() {
+            self.sync_fishes();
+        }
         self.step_sky_clouds(dt);
+        self.step_fishes_and_fishing(dt);
         self.draw(gl, sh, now);
     }
 
     fn settle(&mut self, gl: &glow::Context, sh: &mut Shared, now: f64) {
         self.b.settle();
         self.draw(gl, sh, now);
+    }
+
+    fn handle_click(&mut self, _gl: &glow::Context, x: f32, y: f32, _now: f64) {
+        // Nếu cá đang cắn câu: click bất kỳ đâu trên vùng trống sẽ giật cần bắt cá ngay!
+        if let FishingState::Hooked { from, bob, .. } = self.fishing {
+            self.push_ripple(bob.0, bob.1, 1.45);
+            self.fishing = FishingState::Catching { from, start: bob, age: 0.0, dur: 1.25 };
+            return;
+        }
+        // Chống nháy đúp vô tình ngay lúc vừa mới quăng dây
+        if let FishingState::Casting { age, .. } = self.fishing {
+            if age < 0.22 {
+                return;
+            }
+        }
+        let s = self.b.cur_s(x, y);
+        if s > 10.0 {
+            // Đang chờ cá mà bấm vào sát phao -> thu cần nghỉ câu
+            if let FishingState::Waiting { from, bob, .. } = self.fishing {
+                if (bob.0 - x).hypot(bob.1 - y) < 42.0 {
+                    self.push_ripple(bob.0, bob.1, 0.7);
+                    self.fishing = FishingState::ReelingEmpty { from, start: bob, age: 0.0, dur: 0.5 };
+                    return;
+                }
+            }
+            let from = self.find_rod_anchor(x, y);
+            self.fishing = FishingState::Casting { from, to: (x, y), age: 0.0, dur: 0.36 };
+        } else {
+            // Nhấn trên bờ cỏ: búng viên sỏi nhỏ nhảy ra mép nước gần nhất
+            let gx = self.b.cur_s(x + 12.0, y) - self.b.cur_s(x - 12.0, y);
+            let gy = self.b.cur_s(x, y + 12.0) - self.b.cur_s(x, y - 12.0);
+            let len = gx.hypot(gy).max(0.001);
+            let (dx, dy) = (gx / len, gy / len);
+            for step in 1..=20 {
+                let px = x + dx * (step as f32 * 14.0);
+                let py = y + dy * (step as f32 * 14.0);
+                if self.b.cur_s(px, py) > 18.0 {
+                    self.push_ripple(px, py, 0.9);
+                    break;
+                }
+            }
+        }
+    }
+
+    fn is_interacting(&self, _now: f64) -> bool {
+        !self.ripples.is_empty() || !matches!(self.fishing, FishingState::Idle)
     }
 
     fn destroy(&mut self, gl: &glow::Context) {

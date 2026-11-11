@@ -7,6 +7,7 @@ uniform vec4 uSwallow[8];
 uniform float uSwallowN;
 uniform vec4 uLantern[8];
 uniform float uLanternN;
+uniform vec4 uBurst[6];
 out vec4 o;
 
 // Bảng màu nền giấy dó nắng xuân ấm áp
@@ -170,13 +171,15 @@ void main() {
     if (float(i) >= uLanternN) break;
     vec4 ln = uLantern[i];
     vec2 dp = p - ln.xy;
-    if (dot(dp, dp) > 900.0) continue;
-    float sw = sin(t * 2.1 + ln.z) * (0.12 * uWind);
+    if (dot(dp, dp) > 1156.0) continue;
+    bool isLantern = ln.w >= -0.25;
+    float boostSw = isLantern ? max(0.0, ln.w) : max(0.0, -ln.w - 1.0);
+    float sw = sin(t * 2.1 + ln.z) * (0.12 * uWind) + sin(t * 10.5 + ln.z) * (0.42 * boostSw);
     vec2 q = rot(sw) * dp;
     // Quầng sáng vàng đỏ ấm áp
-    float glow = exp(-length(q) * 0.11) * 0.22;
+    float glow = exp(-length(q) * 0.11) * (0.22 + 0.30 * boostSw);
     col = mix(col, vec3(1.0, 0.78, 0.42), glow);
-    if (ln.w < 0.5) {
+    if (isLantern) {
       // Đèn lồng đỏ tròn trịa
       float cord = segD(q, vec2(0.0, -13.0), vec2(0.0, -7.0)) - 0.6;
       float body = length(q / vec2(7.5, 6.2)) - 1.0;
@@ -234,6 +237,96 @@ void main() {
     float p2 = floatingPetals(p + vec2(37.0, 53.0), t * 0.86, uPetals * 0.82, 0.76);
     col = mix(col, SAKURA_PINK, p1 * 0.88);
     col = mix(col, SAKURA_PALE, p2 * 0.82);
+  }
+
+  // ---------- Tương tác click: Pháo sáng kim tuyến Tết hoặc Chùm hoa đào xuân ----------
+  for (int bi = 0; bi < 6; bi++) {
+    vec4 b = uBurst[bi];
+    if (abs(b.w) < 0.01) continue;
+    float age = b.z;
+    float seed = abs(b.w);
+    if (b.w < 0.0) {
+      // Chùm pháo hoa kim tuyến vàng-đỏ quanh đèn lồng / bao lì xì
+      if (dot(p - b.xy, p - b.xy) > 130.0 * 130.0) continue;
+      float fade = ss(0.0, 0.06, age) * (1.0 - ss(1.3, 2.4, age));
+      float ease = 1.0 - exp(-age * 3.2);
+      col += vec3(1.0, 0.65, 0.22) * exp(-length(p - b.xy) / 36.0) * (1.0 - ss(0.0, 0.8, age)) * 0.35;
+      for (int k = 0; k < 16; k++) {
+        float fk = float(k);
+        float h1 = hash2(vec2(fk * 5.1, seed * 43.7));
+        float h2 = hash2(vec2(fk * 9.3 + 1.4, seed * 29.3));
+        float ang = fk * 0.3927 + (h1 - 0.5) * 0.22;
+        float rEnd = (32.0 + 54.0 * h2) * ease;
+        float rTail = max(4.0, rEnd * 0.58);
+        vec2 dir = vec2(cos(ang), sin(ang));
+        vec2 pA = b.xy + dir * rTail + vec2(0.0, age * age * 14.0);
+        vec2 pB = b.xy + dir * rEnd + vec2(0.0, age * age * 22.0);
+        float sd = segD(p, pA, pB);
+        float spark = (1.0 - ss(0.2, 1.35, sd)) * fade;
+        vec2 dq = p - pB;
+        float tw = 0.6 + 0.4 * sin(age * 20.0 + fk * 2.1);
+        float star = max(
+          (1.0 - ss(0.0, 0.85, abs(dq.x))) * (1.0 - ss(0.0, 4.8, abs(dq.y))),
+          (1.0 - ss(0.0, 0.85, abs(dq.y))) * (1.0 - ss(0.0, 4.8, abs(dq.x)))
+        ) * tw * fade;
+        vec3 sCol = (k % 3 == 0) ? vec3(0.96, 0.24, 0.26) : GOLD_FEST;
+        col = mix(col, sCol, clamp(spark + star, 0.0, 1.0));
+      }
+    } else {
+      // Mưa cánh hoa đào hồng thắm & hạt nắng vàng kim tuyến
+      if (age < 1.0) {
+        float wr = 8.0 + age * 64.0;
+        float wRing = (1.0 - ss(0.8, 3.0, abs(length(p - b.xy) - wr))) * (1.0 - age);
+        col = mix(col, GOLD_FEST, wRing * 0.52);
+      }
+      vec2 drift = vec2((25.0 + 16.0 * uWind) * age, 16.0 * age);
+      vec2 bCenter = b.xy + drift;
+      if (dot(p - bCenter, p - bCenter) > 225.0 * 225.0) continue;
+      float alpha = ss(0.0, 0.10, age) * (1.0 - ss(3.1, 4.4, age));
+      float ease = 1.0 - exp(-age * 2.3);
+      for (int k = 0; k < 16; k++) {
+        float fk = float(k);
+        float h1 = hash2(vec2(fk * 4.7, seed * 39.1));
+        float h2 = hash2(vec2(fk * 8.3 + 1.9, seed * 27.7));
+        float ang = fk * 0.3927 + (h1 - 0.5) * 0.32 + age * (0.52 + 0.32 * h2);
+        float rad = (14.0 + 58.0 * h2) * ease + age * (7.0 + 9.0 * h1);
+        vec2 pos = b.xy + drift + vec2(cos(ang), sin(ang) * 0.84) * rad;
+        pos.x += sin(age * 2.4 + h1 * 6.28) * 6.0;
+        vec2 dq = p - pos;
+        if (dot(dq, dq) > 144.0) continue;
+        if (k < 5) {
+          // Bông đào bích 5 cánh hồng thắm kèm bóng đổ & nhụy vàng rực
+          col = mix(col, BARK_INK, (1.0 - ss(3.5, 7.5, length(dq - vec2(2.4, 3.2)))) * 0.28 * alpha);
+          vec2 rq = rot(age * (1.7 + h1) + h2 * 6.28) * dq;
+          float r = length(rq);
+          float fRad = (5.6 + 2.3 * cos(atan(rq.y, rq.x) * 5.0)) * (0.9 + 0.2 * h1);
+          float flw = 1.0 - ss(fRad - 0.65, fRad + 0.65, r);
+          if (flw > 0.001) {
+            vec3 fCol = mix(vec3(0.95, 0.34, 0.48), vec3(0.99, 0.72, 0.78), ss(1.2, 5.2, r));
+            fCol = mix(fCol, GOLD_FEST, 1.0 - ss(0.8, 2.3, r));
+            col = mix(col, fCol, flw * alpha * 0.98);
+          }
+        } else if (k < 12) {
+          // Cánh hoa đào bích chao nghiêng nổi bật
+          col = mix(col, BARK_INK, (1.0 - ss(2.0, 5.2, length(dq - vec2(1.8, 2.5)))) * 0.22 * alpha);
+          vec2 rq = rot(age * (2.5 + h2 * 1.6) + h1 * 6.28) * dq;
+          float squeeze = 0.55 + 0.45 * abs(cos(age * 2.3 + fk));
+          float pd = length(rq / vec2(5.4, 3.2 * squeeze)) - 1.0;
+          float pm = 1.0 - ss(-0.15, 0.35, pd * 2.0);
+          vec3 pCol = h1 < 0.45 ? vec3(0.95, 0.38, 0.50) : SAKURA_PEACH;
+          col = mix(col, pCol, pm * alpha * 0.95);
+        } else {
+          // Sao lấp lánh nhũ vàng ngày Tết
+          float tw = 0.6 + 0.4 * sin(age * 12.0 + fk * 3.1);
+          float star = max(
+            (1.0 - ss(0.0, 0.95, abs(dq.x))) * (1.0 - ss(0.0, 5.5, abs(dq.y))),
+            (1.0 - ss(0.0, 0.95, abs(dq.y))) * (1.0 - ss(0.0, 5.5, abs(dq.x)))
+          ) * tw;
+          float gl = (1.0 - ss(0.6, 2.8, length(dq))) * tw;
+          col = mix(col, GOLD_FEST, clamp(star + gl, 0.0, 1.0) * alpha);
+        }
+      }
+    }
   }
 
   col *= 1.0 + (g2 - 0.5) * 0.025;

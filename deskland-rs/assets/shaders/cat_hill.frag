@@ -4,9 +4,11 @@ uniform sampler2D uNoise, uFA, uFB;
 uniform vec2 uRes, uGrid;
 uniform float uScale, uSeed, uStep, uMix, uTime, uDebug;
 uniform float uWind;
+uniform float uTreeShake;
 uniform float uCatN;
 uniform vec4 uCatPos[15];   // x, y, sc * dir (sign = dir), ph
-uniform vec4 uCatMeta[15];  // mode (0=curled, 1=belly, 2=groom, 3=walk), furIdx (0..7), sleepZ (0..1), 0
+uniform vec4 uCatMeta[15];  // mode (0=curled, 1=belly, 2=groom, 3=walk), furIdx (0..7), happy (0..2.6), 0
+uniform vec4 uToy;          // Cuộn len: x, y, age, ttl
 uniform float uBflyN;
 uniform vec4 uBfly[6];      // x, y, vx_sign, ph
 uniform float uLeafN;
@@ -189,6 +191,68 @@ void drawSleepZ(inout vec3 col, vec2 q, float ph) {
   }
 }
 
+// Trái tim hồng bay lên khi vuốt ve mèo
+void drawHappyHearts(inout vec3 col, vec2 dq, float sc, float happy) {
+  float prog = clamp((2.6 - happy) / 2.6, 0.0, 1.0);
+  float alpha = ss(0.0, 0.08, prog) * (1.0 - ss(0.72, 1.0, prog));
+  for (int i = 0; i < 2; i++) {
+    float lp = clamp(prog * 1.18 - float(i) * 0.22, 0.0, 1.0);
+    if (lp <= 0.01) continue;
+    float side = i == 0 ? 1.0 : -1.0;
+    vec2 hc = vec2(side * (5.0 + sin(lp * 7.0) * 3.5), -24.0 - lp * 24.0);
+    float sz = (i == 0 ? 6.8 : 5.0) * ss(0.0, 0.18, lp);
+    vec2 hq = (dq / sc) - hc;
+    if (abs(hq.x) > sz * 1.2 || abs(hq.y) > sz * 1.2) continue;
+    float c1 = length(hq - vec2(-0.34 * sz, -0.25 * sz)) - 0.42 * sz;
+    float c2 = length(hq - vec2( 0.34 * sz, -0.25 * sz)) - 0.42 * sz;
+    float tr = sdTri(hq, vec2(-0.70 * sz, -0.04 * sz), vec2(0.0, 0.68 * sz), vec2(0.70 * sz, -0.04 * sz));
+    float hd = min(min(c1, c2), tr);
+    float a = alpha * (1.0 - ss(0.78, 1.0, lp));
+    strokeFill(col, hd * sc, vec3(1.0, 0.44, 0.58), OUTLINE, 1.35, a);
+    float hi = length(hq - vec2(-0.32 * sz, -0.32 * sz)) - 0.13 * sz;
+    col = mix(col, vec3(1.0, 0.88, 0.92), ss(0.4, -0.4, hi * sc) * a);
+  }
+}
+
+// Cuộn len đỏ-cam đồ chơi trên đồi cỏ
+void drawYarnBall(inout vec3 col, vec2 p, vec4 toy, float s) {
+  if (toy.w <= 0.0) return;
+  float age = toy.z;
+  float fade = ss(0.0, 0.5, toy.w);
+  float bounce = abs(sin(age * 8.5)) * exp(-age * 2.8) * 18.0 * s;
+  vec2 dp = p - toy.xy;
+  if (dot(dp, dp) > (42.0 * s) * (42.0 * s)) return;
+  vec2 q = dp / s;
+
+  // Bóng đổ trên cỏ và sợi len vương ra ngoài
+  float sh = sdEllipse(q - vec2(0.0, 7.5), vec2(11.5 - bounce * 0.15 / max(s, 0.1), 4.2));
+  col = mix(col, vec3(0.28, 0.48, 0.15), ss(1.0, -1.0, sh * s) * 0.26 * fade);
+
+  vec2 tailA = vec2(6.0, 6.5);
+  vec2 tailB = vec2(16.0, 8.5 + sin(age * 4.0) * 1.8);
+  vec2 tailC = vec2(23.0, 5.5 + cos(age * 4.0) * 2.0);
+  float dStrand = min(sdSeg(q, tailA, tailB), sdSeg(q, tailB, tailC)) - 1.15;
+  strokeFill(col, dStrand * s, vec3(0.96, 0.36, 0.34), OUTLINE, 1.0, fade);
+
+  // Quả cầu len tròn
+  vec2 bq = rot(age * 1.4 * exp(-age * 1.6)) * (q - vec2(0.0, -bounce / max(s, 0.01)));
+  float r = 9.5;
+  float dBall = length(bq) - r;
+  if (dBall < 2.5) {
+    vec3 yc = mix(vec3(0.86, 0.24, 0.25), vec3(0.98, 0.44, 0.38), ss(r, -r, bq.x * 0.5 + bq.y * 0.8));
+    // Các vòng sợi len quấn đan chéo
+    float w1 = abs(length(bq - vec2(-3.5, -2.0)) - 8.5) - 0.55;
+    float w2 = abs(length(bq - vec2( 4.0,  2.5)) - 8.0) - 0.55;
+    float w3 = abs(length(bq - vec2( 1.5, -4.5)) - 7.8) - 0.55;
+    float wrap = min(w1, min(w2, w3));
+    if (dBall < 0.0) {
+      yc = mix(yc, OUTLINE, ss(0.6, -0.4, wrap) * 0.45);
+      yc = mix(yc, vec3(1.0, 0.72, 0.66), ss(1.5, -0.5, length(bq - vec2(-3.2, -3.4)) - 2.2) * 0.55);
+    }
+    strokeFill(col, dBall * s, yc, OUTLINE, 1.6, fade);
+  }
+}
+
 // Vẽ chú mèo hoạt hình tròn trịa
 void drawCat(inout vec3 col, vec2 p, vec4 pos, vec4 meta) {
   float sc = abs(pos.z);
@@ -196,9 +260,10 @@ void drawCat(inout vec3 col, vec2 p, vec4 pos, vec4 meta) {
   float ph = pos.w;
   int mode = int(meta.x + 0.5);
   int furIdx = int(meta.y + 0.5);
+  float happy = meta.z;
 
   vec2 dp = p - pos.xy;
-  if (dot(dp, dp) > (56.0 * sc) * (56.0 * sc)) return;
+  if (dot(dp, dp) > (66.0 * sc) * (66.0 * sc)) return;
   vec2 q = vec2(dp.x * dir, dp.y) / sc;
 
   vec3 baseC, markC, bellyC;
@@ -243,7 +308,7 @@ void drawCat(inout vec3 col, vec2 p, vec4 pos, vec4 meta) {
     // Đuôi cuộn quanh người
     float tailD = sdSeg(bq, vec2(-15.0, 6.0), vec2(4.0, 11.0)) - 3.6;
     strokeFill(col, tailD * sc, pat == 3 ? markC : baseC, OUTLINE, 1.5, 1.0);
-    drawSleepZ(col, q, ph);
+    if (happy <= 0.01) drawSleepZ(col, q, ph);
   } else if (mode == 1) {
     // 1: Nằm ngửa phơi bụng (sleep_belly)
     float br = 1.0 + sin(ph * 1.5) * 0.04;
@@ -261,7 +326,7 @@ void drawCat(inout vec3 col, vec2 p, vec4 pos, vec4 meta) {
     float p1 = sdEllipse(bq - vec2(-6.0, -9.5), vec2(3.8, 5.2));
     float p2 = sdEllipse(bq - vec2( 7.0, -9.0), vec2(3.8, 5.2));
     strokeFill(col, min(p1, p2) * sc, bellyC, OUTLINE, 1.5, 1.0);
-    drawSleepZ(col, q, ph);
+    if (happy <= 0.01) drawSleepZ(col, q, ph);
   } else if (mode == 2) {
     // 2: Ngồi liếm tay (groom)
     float bob = sin(ph * 4.5) * 1.2;
@@ -340,6 +405,9 @@ void drawCat(inout vec3 col, vec2 p, vec4 pos, vec4 meta) {
     col = mix(col, OUTLINE, ss(0.5, -0.5, min(eye1, eye2) * sc));
     float nose = length(hq - vec2(3.8, 2.0)) - 1.2;
     col = mix(col, vec3(0.95, 0.56, 0.62), ss(0.5, -0.5, nose * sc));
+  }
+  if (happy > 0.01) {
+    drawHappyHearts(col, dp, sc, happy);
   }
 }
 
@@ -442,7 +510,7 @@ void main() {
   }
 
   // ---------- 5. Đá cuội, đệm hồng và cây trên đồi ----------
-  float swayTree = sin(t * 1.6 * uWind) * 3.5 * s * uWind;
+  float swayTree = sin(t * 1.6 * uWind) * 3.5 * s * uWind + sin(t * 20.0) * 4.5 * s * uTreeShake;
   drawRock(col, p, vec2(W * 0.13, H * 0.45), 0.95 * s);
   drawRock(col, p, vec2(W * 0.88, H * 0.47), 0.90 * s);
   drawRock(col, p, vec2(W * 0.43, H * 0.63), 0.85 * s);
@@ -460,10 +528,18 @@ void main() {
   drawMidTree(col, p, vec2(W * 0.72, H * 0.66), 1.00 * s, swayTree * 0.85);
   drawMidTree(col, p, vec2(W * 0.86, H * 0.64), 0.98 * s, -swayTree);
 
-  // ---------- 6. Đàn mèo trên đồi ----------
+  // ---------- 6. Đàn mèo và cuộn len đồ chơi trên đồi ----------
+  bool toyDrawn = uToy.w <= 0.0;
   for (int i = 0; i < 15; i++) {
     if (float(i) >= uCatN) break;
+    if (!toyDrawn && uCatPos[i].y >= uToy.y) {
+      drawYarnBall(col, p, uToy, s);
+      toyDrawn = true;
+    }
     drawCat(col, p, uCatPos[i], uCatMeta[i]);
+  }
+  if (!toyDrawn) {
+    drawYarnBall(col, p, uToy, s);
   }
 
   // ---------- 7. Tán cây lớn viền phải & viền trái khung hình ----------

@@ -42,6 +42,7 @@ struct Lantern {
     y: f32,
     ph: f32,
     kind: f32,
+    swing: f32,
 }
 
 struct Swallow {
@@ -52,6 +53,7 @@ struct Swallow {
     turn: f32,
     ph: f32,
     timer: f32,
+    boost: f32,
 }
 
 pub struct TetSakura {
@@ -60,6 +62,7 @@ pub struct TetSakura {
     rng: Rng,
     lanterns: Vec<Lantern>,
     swallows: Vec<Swallow>,
+    bursts: Vec<[f32; 4]>,
     t0: f64,
 }
 
@@ -71,6 +74,7 @@ impl TetSakura {
             rng: Rng::new(rng_seed),
             lanterns: Vec::new(),
             swallows: Vec::new(),
+            bursts: Vec::new(),
             t0: now,
         };
         s.commit(gl, true, now);
@@ -120,6 +124,7 @@ impl TetSakura {
                         y,
                         ph: noise.hash2(n as f64, k as f64, 710) as f32 * 6.283,
                         kind: if n % 2 == 0 { 0.0 } else { 1.0 },
+                        swing: 0.0,
                     });
                 }
             }
@@ -139,6 +144,7 @@ impl TetSakura {
             turn: (self.rng.next() - 0.5) * 0.3,
             ph: self.rng.next() * 6.28,
             timer: 2.0 + self.rng.next() * 3.5,
+            boost: 0.0,
         }
     }
 
@@ -154,6 +160,7 @@ impl TetSakura {
             let r1 = self.rng.next();
             let r2 = self.rng.next();
             let b = &mut self.swallows[i];
+            b.boost = (b.boost - dt * 0.55).max(0.0);
             b.timer -= dt;
             if b.timer <= 0.0 {
                 b.turn = (r1 - 0.5) * 0.6;
@@ -171,10 +178,11 @@ impl TetSakura {
             if b.y > h2 - m {
                 b.turn -= if b.a.sin() > 0.0 { 0.9 } else { 0.35 } * dt;
             }
+            let mult = 1.0 + 0.7 * b.boost;
             b.a += b.turn * dt;
-            b.x += b.a.cos() * b.sp * dt;
-            b.y += b.a.sin() * b.sp * dt;
-            b.ph += dt * 8.2;
+            b.x += b.a.cos() * b.sp * mult * dt;
+            b.y += b.a.sin() * b.sp * mult * dt;
+            b.ph += dt * (8.2 + 5.5 * b.boost);
         }
     }
 
@@ -182,11 +190,16 @@ impl TetSakura {
         let t = ((now - self.t0) / 1000.0) as f32;
         let mut lantern = [0f32; 32];
         for (i, ln) in self.lanterns.iter().enumerate() {
-            lantern[i * 4..i * 4 + 4].copy_from_slice(&[ln.x, ln.y, ln.ph, ln.kind]);
+            let meta = if ln.kind < 0.5 { ln.swing } else { -(1.0 + ln.swing) };
+            lantern[i * 4..i * 4 + 4].copy_from_slice(&[ln.x, ln.y, ln.ph, meta]);
         }
         let mut swallow = [0f32; 32];
         for (i, b) in self.swallows.iter().enumerate() {
             swallow[i * 4..i * 4 + 4].copy_from_slice(&[b.x, b.y, b.a, b.ph]);
+        }
+        let mut burst = [0f32; 24];
+        for (i, b) in self.bursts.iter().take(6).enumerate() {
+            burst[i * 4..i * 4 + 4].copy_from_slice(b);
         }
         let p = &mut sh.prog;
         unsafe { gl.use_program(Some(p.prog)) };
@@ -197,6 +210,7 @@ impl TetSakura {
         p.f4v(gl, "uLantern", &lantern);
         p.f1(gl, "uSwallowN", self.swallows.len() as f32);
         p.f4v(gl, "uSwallow", &swallow);
+        p.f4v(gl, "uBurst", &burst);
         unsafe { gl.draw_arrays(glow::TRIANGLES, 0, 3) };
     }
 }
@@ -209,6 +223,14 @@ impl Theme for TetSakura {
 
     fn frame(&mut self, gl: &glow::Context, sh: &mut Shared, dt: f32, now: f64) {
         self.b.update_mix(now);
+        for ln in &mut self.lanterns {
+            ln.swing = (ln.swing - dt * 0.45).max(0.0);
+        }
+        self.bursts.retain_mut(|b| {
+            b[2] += dt;
+            let max_age = if b[3] < 0.0 { 2.4 } else { 4.4 };
+            b[2] < max_age
+        });
         self.step_swallows(dt);
         self.draw(gl, sh, now);
     }
@@ -216,6 +238,43 @@ impl Theme for TetSakura {
     fn settle(&mut self, gl: &glow::Context, sh: &mut Shared, now: f64) {
         self.b.settle();
         self.draw(gl, sh, now);
+    }
+
+    fn handle_click(&mut self, _gl: &glow::Context, x: f32, y: f32, _now: f64) {
+        let mut hit_lantern: Option<(f32, f32)> = None;
+        for ln in &mut self.lanterns {
+            if (ln.x - x).hypot(ln.y - y) < 48.0 {
+                ln.swing = 1.0;
+                if hit_lantern.is_none() {
+                    hit_lantern = Some((ln.x, ln.y));
+                }
+            }
+        }
+
+        if self.bursts.len() >= 6 {
+            self.bursts.remove(0);
+        }
+        let seed = 0.15 + self.rng.next() * 0.85;
+        if let Some((lx, ly)) = hit_lantern {
+            self.bursts.push([lx, ly, 0.0, -seed]);
+        } else {
+            self.bursts.push([x, y, 0.0, seed]);
+        }
+
+        for sw in &mut self.swallows {
+            if (sw.x - x).hypot(sw.y - y) < 540.0 {
+                let target = (y - sw.y).atan2(x - sw.x) + (self.rng.next() - 0.5) * 0.35;
+                let mut d = target - sw.a;
+                d = d.sin().atan2(d.cos());
+                sw.a += d * 0.8;
+                sw.boost = 1.0;
+                sw.timer = 2.0;
+            }
+        }
+    }
+
+    fn is_interacting(&self, _now: f64) -> bool {
+        !self.bursts.is_empty() || self.lanterns.iter().any(|l| l.swing > 0.01)
     }
 
     fn destroy(&mut self, gl: &glow::Context) {

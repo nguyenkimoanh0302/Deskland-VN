@@ -40,6 +40,7 @@ use windows_sys::Win32::System::ProcessStatus::*;
 use windows_sys::Win32::System::Threading::*;
 use windows_sys::Win32::UI::Accessibility::*;
 use windows_sys::Win32::UI::HiDpi::*;
+use windows_sys::Win32::UI::Input::*;
 use windows_sys::Win32::UI::Shell::*;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
@@ -72,6 +73,7 @@ const CMD_SYNC: usize = 122;
 const CMD_WINL: usize = 123;
 const CMD_SAVER_NOW: usize = 124;
 const CMD_SETTINGS: usize = 125;
+const CMD_INTERACTION: usize = 126;
 const WM_OPEN_SETTINGS: u32 = WM_APP + 2;
 const CMD_EXIT: usize = 199;
 const HOTKEY_SAVER: i32 = 1;
@@ -113,10 +115,13 @@ pub fn cmd_theme(cmd: usize) -> Option<&'static str> {
 
 thread_local! {
     static PENDING_CMD: Cell<usize> = const { Cell::new(0) };
+    static PENDING_CLICK: Cell<Option<(i32, i32)>> = const { Cell::new(None) };
+    static MOUSE_DOWN: Cell<Option<(i32, i32, Instant)>> = const { Cell::new(None) };
     static ZORDER_DIRTY: Cell<bool> = const { Cell::new(false) };
     static DISPLAY_CHANGED: Cell<bool> = const { Cell::new(false) };
     static REPAINT: Cell<bool> = const { Cell::new(false) };
     static LOCK_SYNC: Cell<bool> = const { Cell::new(true) };
+    static INTERACTIONS_ENABLED: Cell<bool> = const { Cell::new(true) };
     static PENDING_THEME_SYNC: Cell<bool> = const { Cell::new(false) };
     static SAVER_START: Cell<Option<Instant>> = const { Cell::new(None) };
     static SAVER_MOUSE: Cell<Option<(i32, i32)>> = const { Cell::new(None) };
@@ -128,6 +133,30 @@ thread_local! {
 
 unsafe extern "system" fn msg_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     match m {
+        WM_INPUT => {
+            let mut raw: RAWINPUT = std::mem::zeroed();
+            let mut size = std::mem::size_of::<RAWINPUT>() as u32;
+            GetRawInputData(l as HRAWINPUT, RID_INPUT, &mut raw as *mut _ as *mut _, &mut size, std::mem::size_of::<RAWINPUTHEADER>() as u32);
+            if raw.header.dwType == RIM_TYPEMOUSE {
+                let flags = raw.data.mouse.Anonymous.Anonymous.usButtonFlags;
+                if flags & (RI_MOUSE_LEFT_BUTTON_DOWN as u16) != 0 {
+                    let mut pt = POINT { x: 0, y: 0 };
+                    GetCursorPos(&mut pt);
+                    MOUSE_DOWN.with(|c| c.set(Some((pt.x, pt.y, Instant::now()))));
+                }
+                if flags & (RI_MOUSE_LEFT_BUTTON_UP as u16) != 0 {
+                    let mut pt = POINT { x: 0, y: 0 };
+                    GetCursorPos(&mut pt);
+                    if let Some((x0, y0, t0)) = MOUSE_DOWN.with(|c| c.take()) {
+                        let d2 = (pt.x - x0).saturating_mul(pt.x - x0).saturating_add((pt.y - y0).saturating_mul(pt.y - y0));
+                        if d2 <= 36 && t0.elapsed().as_millis() <= 450 {
+                            PENDING_CLICK.with(|c| c.set(Some((pt.x, pt.y))));
+                        }
+                    }
+                }
+            }
+            DefWindowProcW(h, m, w, l)
+        }
         WM_CLOSE => {
             PostQuitMessage(0);
             0
@@ -176,6 +205,8 @@ unsafe extern "system" fn msg_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRE
                 let chk = |on: bool| if on { MF_STRING | MF_CHECKED } else { MF_STRING };
                 AppendMenuW(menu, chk(lock::saver_installed()), CMD_SAVER, wide("Cảnh động khi rảnh (trình bảo vệ màn hình, khóa khi quay lại)").as_ptr());
                 AppendMenuW(menu, chk(LOCK_SYNC.with(|c| c.get())), CMD_SYNC, wide("Dùng cảnh làm ảnh màn khóa Windows").as_ptr());
+                let chk_int = if INTERACTIONS_ENABLED.with(|c| c.get()) { MF_STRING | MF_CHECKED } else { MF_STRING };
+                AppendMenuW(menu, chk_int, CMD_INTERACTION, wide("Tương tác chuột trên màn hình nền").as_ptr());
                 if lock::winl_disabled() {
                     AppendMenuW(menu, MF_STRING, CMD_WINL, wide("⚠ Bật lại Win+L của Windows (bản C# cũ đã tắt)").as_ptr());
                 }
@@ -294,6 +325,7 @@ fn monitors() -> Vec<Monitor> {
 }
 
 // ---------------------------------------------------------------- Cài đặt (đọc chung với bản C#)
+#[derive(Clone)]
 struct Config {
     theme: String,
     params: serde_json::Value,
@@ -303,6 +335,8 @@ struct Config {
     lock_idle_mins: u32,
     /// Ngôn ngữ giao diện trang cài đặt: "auto" | "vi" | "en"
     lang: String,
+    /// Bật/tắt tương tác chuột trên màn hình nền
+    interactions_enabled: bool,
 }
 
 fn rust_settings_path() -> std::path::PathBuf {
@@ -319,6 +353,7 @@ fn load_config(cli_theme: Option<String>) -> Config {
     // Ngôn ngữ: bản Rust chưa lưu thì theo lựa chọn ở bản C#
     let lang = root.get("lang").or_else(|| csv.as_ref().and_then(|c| c.get("lang"))).and_then(|v| v.as_str()).unwrap_or("auto").to_string();
     let saved = root.get("theme").and_then(|v| v.as_str()).unwrap_or("beach").to_string();
+    let interactions_enabled = root.get("interactionsEnabled").and_then(|v| v.as_bool()).unwrap_or(true);
     let raw_theme = cli_theme.unwrap_or(saved);
     let theme = match canonical_theme(&raw_theme) {
         Some(t) => t.to_string(),
@@ -332,6 +367,7 @@ fn load_config(cli_theme: Option<String>) -> Config {
         params: root.get("params").cloned().unwrap_or(serde_json::Value::Null),
         lock_sync: root.get("lockSyncWin").and_then(|v| v.as_bool()).unwrap_or(true),
         lang,
+        interactions_enabled,
         lock_idle_mins: root.get("lockIdleMins").and_then(|v| v.as_u64()).map(|v| v as u32).filter(|&v| v > 0).unwrap_or(5),
     }
 }
@@ -344,6 +380,7 @@ fn save_config(cfg: &Config) {
         "lockSyncWin": LOCK_SYNC.with(|c| c.get()),
         "lockIdleMins": cfg.lock_idle_mins,
         "lang": cfg.lang,
+        "interactionsEnabled": INTERACTIONS_ENABLED.with(|c| c.get()),
         "params": cfg.params,
     });
     let p = rust_settings_path();
@@ -376,6 +413,7 @@ fn web_init(app: &App) -> serde_json::Value {
         "screen": { "w": w, "h": h },
         "autostart": settings::autostart_enabled(),
         "autostartWarn": false,
+        "interactions": app.interactions_enabled,
         "lang": app.cfg.lang, "langEff": eff, "langSys": sys,
         "lockCfg": {
             "idleMins": if lock::saver_installed() { app.cfg.lock_idle_mins } else { 0 },
@@ -384,6 +422,7 @@ fn web_init(app: &App) -> serde_json::Value {
         "caps": {
             // Chỉ dùng khóa thật của Windows: trang hiện nhóm tùy chọn khóa riêng, không có PIN / chặn Win+L
             "realLock": true,
+            "interactions": true,
             "hotkey": HOTKEY_OK.with(|c| c.get()),
             "share": false,
             "themes": [
@@ -457,6 +496,9 @@ struct App {
     dummy: Option<(HWND, HDC)>,
     /// Chạy như trình bảo vệ màn hình Windows (`/s`)
     saver: bool,
+    headless: bool,
+    interactions_enabled: bool,
+    boost_until: f64,
 }
 
 impl App {
@@ -611,7 +653,9 @@ impl App {
             if hwnd.is_null() {
                 return Err("CreateWindowExW thất bại".into());
             }
-            let attach = if self.saver {
+            let attach = if self.headless {
+                None
+            } else if self.saver {
                 unsafe {
                     SetWindowPos(hwnd, HWND_TOPMOST, m.rect.left, m.rect.top, pw, ph, SWP_SHOWWINDOW);
                 }
@@ -776,6 +820,7 @@ impl App {
             sync: LOCK_SYNC.with(|c| c.get()),
             autostart: settings::autostart_enabled(),
             hotkey: HOTKEY_OK.with(|c| c.get()),
+            interaction: self.interactions_enabled,
         }
     }
 
@@ -977,6 +1022,63 @@ impl App {
             }
         }
     }
+
+    fn any_interacting(&self, now: f64) -> bool {
+        now < self.boost_until || self.walls.iter().any(|w| !w.paused && w.theme.is_interacting(now))
+    }
+
+    fn handle_click(&mut self, x: i32, y: i32) -> bool {
+        let pt = POINT { x, y };
+        let hwnd = unsafe { WindowFromPoint(pt) };
+        if hwnd.is_null() {
+            return false;
+        }
+        // Đảm bảo cửa sổ gốc tại điểm nhấn thực sự là lớp Desktop (Progman / WorkerW),
+        // tránh bắt nhầm cửa sổ File Explorer (CabinetWClass) cũng có SHELLDLL_DefView.
+        let root = unsafe { GetAncestor(hwnd, GA_ROOT) };
+        if root.is_null() {
+            return false;
+        }
+        let mut class = [0u16; 64];
+        let n = unsafe { GetClassNameW(root, class.as_mut_ptr(), 64) };
+        let root_name = String::from_utf16_lossy(&class[..n.max(0) as usize]);
+        if !matches!(root_name.as_str(), "Progman" | "WorkerW") {
+            return false;
+        }
+
+        let now = self.now();
+        let Some(ctx) = self.ctx.as_ref() else { return false };
+        for wp in &mut self.walls {
+            if pt.x >= wp.screen.left && pt.x < wp.screen.right && pt.y >= wp.screen.top && pt.y < wp.screen.bottom {
+                // Không phản hồi khi người dùng nhấn trực tiếp vào biểu tượng trên màn hình
+                if let Some(icons) = &wp.last_icons {
+                    if icons.iter().any(|r| pt.x >= r.left && pt.x < r.right && pt.y >= r.top && pt.y < r.bottom) {
+                        return false;
+                    }
+                }
+                ctx.make_current(wp.gl_dc);
+                let (cx, cy) = ((pt.x - wp.screen.left) as f32 / wp.dpr, (pt.y - wp.screen.top) as f32 / wp.dpr);
+                wp.theme.handle_click(&ctx.gl, cx, cy, now);
+                self.boost_until = now + 3_500.0;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Mô phỏng click kiểm thử cho `--test-click` (không cần chuột thật).
+    fn simulate_test_clicks(&mut self) {
+        let now = self.now();
+        let Some(ctx) = self.ctx.as_ref() else { return };
+        for wp in &mut self.walls {
+            ctx.make_current(wp.gl_dc);
+            let w = (wp.screen.right - wp.screen.left) as f32 / wp.dpr;
+            let h = (wp.screen.bottom - wp.screen.top) as f32 / wp.dpr;
+            wp.theme.handle_click(&ctx.gl, w * 0.56, h * 0.48, now);
+            wp.theme.handle_click(&ctx.gl, w * 0.72, h * 0.64, now + 60.0);
+        }
+        self.boost_until = now + 3_500.0;
+    }
 }
 
 fn rects_eq(a: &[RECT], b: &[RECT]) -> bool {
@@ -1070,13 +1172,21 @@ fn main() {
     CURRENT_THEME.with(|c| c.set(theme_cmd(&cfg.theme)));
     let lock_sync = cfg.lock_sync;
     LOCK_SYNC.with(|c| c.set(lock_sync));
+    INTERACTIONS_ENABLED.with(|c| c.set(cfg.interactions_enabled));
 
     register_class(MSG_CLASS, Some(msg_proc), false);
     register_class(WALL_CLASS, Some(wall_proc), true);
     register_class(SAVER_CLASS, Some(saver_proc), true);
     let msg_hwnd = unsafe {
         let cls = wide(MSG_CLASS);
-        CreateWindowExW(0, cls.as_ptr(), cls.as_ptr(), 0, 0, 0, 0, 0, std::ptr::null_mut(), std::ptr::null_mut(), GetModuleHandleW(std::ptr::null()), std::ptr::null())
+        let h = CreateWindowExW(0, cls.as_ptr(), cls.as_ptr(), 0, 0, 0, 0, 0, std::ptr::null_mut(), std::ptr::null_mut(), GetModuleHandleW(std::ptr::null()), std::ptr::null());
+        let mut rid: RAWINPUTDEVICE = std::mem::zeroed();
+        rid.usUsagePage = 0x01;
+        rid.usUsage = 0x02;
+        rid.dwFlags = RIDEV_INPUTSINK;
+        rid.hwndTarget = h;
+        RegisterRawInputDevices(&rid, 1, std::mem::size_of::<RAWINPUTDEVICE>() as u32);
+        h
     };
 
     // Khay hệ thống (không có ở chế độ trình bảo vệ màn hình)
@@ -1090,7 +1200,8 @@ fn main() {
     for (i, c) in "Deskland (Rust native)".encode_utf16().enumerate() {
         nid.szTip[i] = c;
     }
-    if !saver {
+    let headless = args.iter().any(|a| a == "--headless");
+    if !saver && !headless {
         unsafe {
             Shell_NotifyIconW(NIM_ADD, &nid);
             // Báo khi khóa / mở khóa phiên để ngừng vẽ lúc không ai thấy desktop
@@ -1121,6 +1232,7 @@ fn main() {
     }
 
     let t_start = Instant::now();
+    let interactions_enabled = cfg.interactions_enabled;
     let mut app = App {
         ctx: None,
         shared: None,
@@ -1134,6 +1246,9 @@ fn main() {
         gdi: arg_value(&args, "--present").as_deref() != Some("gl"),
         dummy: None,
         saver,
+        headless,
+        interactions_enabled,
+        boost_until: 0.0,
     };
     log!("Cách hiển thị: {}", if app.gdi { "gdi (FBO -> đọc về -> StretchDIBits)" } else { "gl (SwapBuffers trực tiếp)" });
     if let Err(e) = app.create_walls() {
@@ -1142,7 +1257,23 @@ fn main() {
         unsafe { Shell_NotifyIconW(NIM_DELETE, &nid) };
         return;
     }
-    app.poll_icons();
+    if headless {
+        let now = app.now();
+        if let Some(ctx) = app.ctx.as_ref() {
+            for wp in &mut app.walls {
+                ctx.make_current(wp.gl_dc);
+                let sample_icons = vec![
+                    IconBox { x: 48.0, y: 48.0, w: 74.0, h: 86.0 },
+                    IconBox { x: 48.0, y: 152.0, w: 74.0, h: 86.0 },
+                    IconBox { x: 148.0, y: 48.0, w: 74.0, h: 86.0 },
+                ];
+                wp.theme.set_icons(&ctx.gl, sample_icons, true, now);
+                wp.theme.settle(&ctx.gl, app.shared.as_mut().unwrap(), now);
+            }
+        }
+    } else {
+        app.poll_icons();
+    }
     app.render();
     if open_settings && !saver {
         PENDING_CMD.with(|c| c.set(CMD_SETTINGS));
@@ -1166,11 +1297,15 @@ fn main() {
     // Ngừng vẽ khi không ai thấy desktop: phiên khóa / màn Winlogon / trình bảo vệ màn hình đang chạy
     let mut hidden = false;
 
-    let hook = unsafe {
-        let progman = FindWindowW(wide("Progman").as_ptr(), std::ptr::null());
-        let mut pid = 0u32;
-        GetWindowThreadProcessId(progman, &mut pid);
-        SetWinEventHook(0x8000, 0x8004, std::ptr::null_mut(), Some(win_event), pid, 0, 0)
+    let hook = if headless {
+        std::ptr::null_mut()
+    } else {
+        unsafe {
+            let progman = FindWindowW(wide("Progman").as_ptr(), std::ptr::null());
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(progman, &mut pid);
+            SetWinEventHook(0x8000, 0x8004, std::ptr::null_mut(), Some(win_event), pid, 0, 0)
+        }
     };
 
     let mut next_frame = app.now() + interval;
@@ -1178,7 +1313,10 @@ fn main() {
     let mut next_fg = app.now();
     let mut next_stat = app.now() + 10_000.0;
     let snapshot_dir = arg_value(&args, "--snapshot");
-    let mut snapshot_at = snapshot_dir.as_ref().map(|_| app.now() + 4_000.0);
+    let exit_after_snap = args.iter().any(|a| a == "--exit-after-snapshot");
+    let test_click = args.iter().any(|a| a == "--test-click");
+    let mut test_click_at = test_click.then(|| app.now() + 900.0);
+    let mut snapshot_at = snapshot_dir.as_ref().map(|_| app.now() + if test_click { 1_500.0 } else { 4_000.0 });
     'outer: loop {
         unsafe {
             let mut msg: MSG = std::mem::zeroed();
@@ -1197,6 +1335,17 @@ fn main() {
             }
         }
         let cmd = PENDING_CMD.with(|c| c.replace(0));
+        let click = PENDING_CLICK.with(|c| c.take());
+        if let Some((x, y)) = click {
+            if !saver && INTERACTIONS_ENABLED.with(|c| c.get()) && app.handle_click(x, y) {
+                next_frame = app.now();
+            }
+        }
+        if test_click_at.is_some_and(|t| app.now() >= t) {
+            test_click_at = None;
+            app.simulate_test_clicks();
+            next_frame = app.now();
+        }
         let actions = settings::take_actions();
         let changed = cmd != 0 || !actions.is_empty();
         for a in actions {
@@ -1254,6 +1403,12 @@ fn main() {
                     }
                 }
                 Action::Autostart(on) => settings::set_autostart(on),
+                Action::Interaction(on) => {
+                    INTERACTIONS_ENABLED.with(|c| c.set(on));
+                    app.interactions_enabled = on;
+                    app.cfg.interactions_enabled = on;
+                    log!("Tương tác chuột: {}", if on { "bật" } else { "tắt" });
+                }
             }
         }
         if cmd == CMD_SETTINGS {
@@ -1348,6 +1503,15 @@ fn main() {
                     settings::set_autostart(m.get("v").and_then(|v| v.as_bool()).unwrap_or(false));
                     web::post(&serde_json::json!({ "t": "autostart", "v": settings::autostart_enabled() }).to_string());
                 }
+                "interactions" => {
+                    let on = m.get("v").and_then(|v| v.as_bool()).unwrap_or(true);
+                    INTERACTIONS_ENABLED.with(|c| c.set(on));
+                    app.interactions_enabled = on;
+                    app.cfg.interactions_enabled = on;
+                    log!("Tương tác chuột: {}", if on { "bật" } else { "tắt" });
+                    web::post(&serde_json::json!({ "t": "interactions", "v": on }).to_string());
+                    web_changed = true;
+                }
                 "lang" => {
                     app.cfg.lang = s_("v");
                     let (eff, sys) = lang_eff(&app.cfg.lang);
@@ -1393,6 +1557,13 @@ fn main() {
                 CMD_WINL => {
                     lock::restore_winl();
                 }
+                CMD_INTERACTION => {
+                    let on = !INTERACTIONS_ENABLED.with(|c| c.get());
+                    INTERACTIONS_ENABLED.with(|c| c.set(on));
+                    app.interactions_enabled = on;
+                    app.cfg.interactions_enabled = on;
+                    log!("Tương tác chuột: {}", if on { "bật" } else { "tắt" });
+                }
                 CMD_SAVER_NOW => {
                     let mut ready = lock::saver_installed() && lock::saver_secure();
                     if !ready {
@@ -1419,9 +1590,12 @@ fn main() {
         if changed && cmd != CMD_EXIT {
             save_config(&app.cfg);
             settings::sync(&app.settings_state());
-            if web::is_open() && cmd != CMD_SETTINGS && cmd != 0 {
-                // Đổi từ menu khay / phím tắt: báo trang cài đặt
-                web::post(&serde_json::json!({ "t": "themeChanged", "id": app.cfg.theme }).to_string());
+            if web::is_open() && cmd != CMD_SETTINGS {
+                // Đổi từ menu khay / cửa sổ Win32: đồng bộ sang trang cài đặt WebView2
+                if cmd != 0 {
+                    web::post(&serde_json::json!({ "t": "themeChanged", "id": app.cfg.theme }).to_string());
+                }
+                web::post(&serde_json::json!({ "t": "interactions", "v": app.interactions_enabled }).to_string());
             }
         }
         // Nếu Windows không bật được trình bảo vệ màn hình thì vẫn khóa thật như người dùng muốn
@@ -1457,8 +1631,10 @@ fn main() {
         }
         let now = app.now();
         if now >= next_icons && !hidden {
-            app.fix_z_order();
-            app.poll_icons();
+            if !headless {
+                app.fix_z_order();
+                app.poll_icons();
+            }
             if web::is_open() {
                 let j = icons_json(&app);
                 if j != last_icons_json {
@@ -1469,7 +1645,7 @@ fn main() {
             next_icons = now + 400.0;
         }
         if now >= next_fg {
-            if !saver {
+            if !saver && snapshot_dir.is_none() {
                 app.poll_foreground();
                 let h = SESSION_LOCKED.with(|c| c.get()) || lock::saver_running() || !lock::input_desktop_is_default();
                 if h != hidden {
@@ -1488,14 +1664,22 @@ fn main() {
             next_icons = next_fg;
         } else if now >= next_frame {
             app.render();
-            next_frame += interval;
+            let cur_interval = if !saver && app.any_interacting(now) {
+                interval.min(20.0) // Adaptive FPS: 50 khung/giây mượt mà khi đang tương tác
+            } else {
+                interval
+            };
+            next_frame += cur_interval;
             if next_frame < now {
-                next_frame = now + interval;
+                next_frame = now + cur_interval;
             }
         }
         if snapshot_at.is_some_and(|t| now >= t) {
             app.snapshot(snapshot_dir.as_deref().unwrap());
             snapshot_at = None;
+            if exit_after_snap {
+                break;
+            }
         }
         if now >= next_stat {
             let (pm, ws) = private_mb();
@@ -1510,7 +1694,9 @@ fn main() {
     }
 
     log!("Đang thoát");
-    unsafe { UnhookWinEvent(hook) };
+    if !hook.is_null() {
+        unsafe { UnhookWinEvent(hook) };
+    }
     app.destroy_walls();
     app.drop_shared();
     app.ctx = None;
@@ -1519,7 +1705,9 @@ fn main() {
             ReleaseDC(h, dc);
             DestroyWindow(h);
         }
-        Shell_NotifyIconW(NIM_DELETE, &nid);
+        if !saver && !headless {
+            Shell_NotifyIconW(NIM_DELETE, &nid);
+        }
         DestroyWindow(msg_hwnd);
     }
 }

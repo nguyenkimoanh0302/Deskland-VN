@@ -499,6 +499,12 @@ pub trait Theme {
     fn frame(&mut self, gl: &glow::Context, shared: &mut Shared, dt: f32, now: f64);
     /// Vẽ lại một khung đứng yên (khi đang tạm dừng nhưng biểu tượng vừa đổi).
     fn settle(&mut self, gl: &glow::Context, shared: &mut Shared, now: f64);
+    /// Xử lý click chuột vào vùng trống.
+    fn handle_click(&mut self, _gl: &glow::Context, _x: f32, _y: f32, _now: f64) {}
+    /// Báo cho vòng lặp chính biết chủ đề đang có hiệu ứng tương tác cần khung hình mượt (50 FPS).
+    fn is_interacting(&self, _now: f64) -> bool {
+        false
+    }
     fn destroy(&mut self, gl: &glow::Context);
     fn field_ms(&self) -> f64;
 }

@@ -10,6 +10,8 @@
     "langAutoWith": "Theo hệ thống ({name})",
     "autostart": "Khởi động cùng Windows",
     "autostartTitle": "Tự động chạy Deskland khi bạn đăng nhập vào Windows",
+    "interactions": "Tương tác chuột",
+    "interactionsTitle": "Nhấn chuột trái vào khoảng trống trên màn hình nền để tương tác với khung cảnh",
     "autostartBlocked": "Khởi động cùng Windows có thể đã bị chặn",
     "autostartWarnSw": "Deskland đã không tự khởi động trong lần đăng nhập này — {sw} có thể đã chặn ứng dụng. Hãy mở {sw}, tìm Deskland trong mục quản lý khởi động và chuyển sang Cho phép.",
     "autostartWarnGeneric": "Deskland đã không tự khởi động trong lần đăng nhập này — phần mềm bảo mật hoặc cài đặt Ứng dụng khởi động của Windows có thể đã chặn. Hãy bật lại Deskland trong trình quản lý khởi động hoặc trong Cài đặt Windows → Ứng dụng → Khởi động.",

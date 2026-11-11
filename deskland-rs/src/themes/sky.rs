@@ -57,6 +57,7 @@ struct SkyCloud {
     grow: f32,
     hw: f32,
     dying: bool,
+    ttl: Option<f32>,
 }
 
 struct Bird {
@@ -74,6 +75,7 @@ struct Bird {
 
 struct PlaneState {
     active: bool,
+    forced: bool,
     x: f32,
     y: f32,
     dir: f32,
@@ -87,6 +89,7 @@ pub struct Sky {
     sky: Vec<SkyCloud>,
     birds: Vec<Bird>,
     plane: PlaneState,
+    meteors: Vec<[f32; 4]>,
     flow_t: f32,
     mass: Vec<f32>,
     mass_t: f32,
@@ -112,7 +115,8 @@ impl Sky {
             rng: Rng::new(rng_seed),
             sky: Vec::new(),
             birds: Vec::new(),
-            plane: PlaneState { active: false, x: 0.0, y: 120.0, dir: 1.0, wait: 3.0 },
+            plane: PlaneState { active: false, forced: false, x: 0.0, y: 120.0, dir: 1.0, wait: 3.0 },
+            meteors: Vec::new(),
             flow_t: 0.0,
             mass: Vec::new(),
             mass_t: -1e9,
@@ -242,13 +246,26 @@ impl Sky {
         layer(rng, &mut circles, 24.0 * 0.85, [0.45, 0.8], -0.6 * rm, &|ci| sstep(0.0, -0.2 * rm, ci) * (1.0 - sstep(-0.4 * rm, -0.6 * rm, ci)), true);
         let y = 80.0 + self.rng.next() * (self.b.h - TASKBAR - 120.0);
         let v = 0.7 + self.rng.next() * 0.6;
-        SkyCloud { x, y, circles, v, grow: 0.0, hw: (-x0).max(x1) + 20.0, dying: false }
+        SkyCloud { x, y, circles, v, grow: 0.0, hw: (-x0).max(x1) + 20.0, dying: false, ttl: None }
+    }
+
+    fn make_puff_cloud(&mut self, x: f32, y: f32) -> SkyCloud {
+        let mut c = self.make_sky_cloud(x);
+        c.y = y + 12.0;
+        for cir in &mut c.circles {
+            cir[0] *= 0.56;
+            cir[1] *= 0.56;
+            cir[2] *= 0.60;
+        }
+        c.hw *= 0.58;
+        c.ttl = Some(7.0);
+        c
     }
 
     fn step_sky_clouds(&mut self, dt: f32) {
         self.flow_t += dt * self.p.flow;
         let want = (self.p.cover * 10.0).round() as usize;
-        let alive: Vec<usize> = (0..self.sky.len()).filter(|&i| !self.sky[i].dying).collect();
+        let alive: Vec<usize> = (0..self.sky.len()).filter(|&i| !self.sky[i].dying && self.sky[i].ttl.is_none()).collect();
         for &i in alive.iter().skip(want) {
             self.sky[i].dying = true;
         }
@@ -273,17 +290,28 @@ impl Sky {
         let mut i = self.sky.len();
         while i > 0 {
             i -= 1;
-            self.sky[i].x += flow * 12.0 * self.sky[i].v * dt;
-            self.sky[i].grow = if self.sky[i].dying { self.sky[i].grow - dt * 0.5 } else { (self.sky[i].grow + dt * 0.5).min(1.0) };
+            if let Some(ttl) = &mut self.sky[i].ttl {
+                *ttl -= dt;
+                if *ttl <= 0.0 {
+                    self.sky[i].dying = true;
+                }
+            }
+            let rate = if self.sky[i].ttl.is_some() && !self.sky[i].dying { 2.2 } else { 0.5 };
+            self.sky[i].x += flow.max(0.25) * 12.0 * self.sky[i].v * dt;
+            self.sky[i].grow = if self.sky[i].dying { self.sky[i].grow - dt * 0.65 } else { (self.sky[i].grow + dt * rate).min(1.0) };
             if self.sky[i].grow <= 0.0 {
                 self.sky.remove(i);
                 continue;
             }
             if self.sky[i].x - self.sky[i].hw > w + 50.0 {
-                let hw = self.sky[i].hw;
-                let mut n = self.make_sky_cloud(-hw - 50.0);
-                n.grow = 1.0;
-                self.sky[i] = n;
+                if self.sky[i].ttl.is_some() {
+                    self.sky.remove(i);
+                } else {
+                    let hw = self.sky[i].hw;
+                    let mut n = self.make_sky_cloud(-hw - 50.0);
+                    n.grow = 1.0;
+                    self.sky[i] = n;
+                }
             }
         }
     }
@@ -516,7 +544,7 @@ impl Sky {
     }
 
     fn step_plane(&mut self, dt: f32) {
-        if self.p.plane == 0 {
+        if self.p.plane == 0 && !self.plane.forced {
             self.plane.active = false;
             return;
         }
@@ -524,14 +552,17 @@ impl Sky {
             self.plane.wait -= dt * if self.p.plane == 2 { 2.5 } else { 1.0 };
             if self.plane.wait <= 0.0 {
                 self.plane.active = true;
+                self.plane.forced = false;
                 self.plane.dir = if self.rng.next() < 0.5 { 1.0 } else { -1.0 };
                 self.plane.x = if self.plane.dir > 0.0 { -40.0 } else { self.b.w + 40.0 };
                 self.plane.y = 50.0 + self.rng.next() * 80.0f32.max(self.b.h * 0.25);
             }
         } else {
-            self.plane.x += self.plane.dir * 52.0 * dt;
+            let speed = if self.plane.forced { 74.0 } else { 52.0 };
+            self.plane.x += self.plane.dir * speed * dt;
             if (self.plane.dir > 0.0 && self.plane.x > self.b.w + 280.0) || (self.plane.dir < 0.0 && self.plane.x < -280.0) {
                 self.plane.active = false;
+                self.plane.forced = false;
                 self.plane.wait = if self.p.plane == 2 {
                     4.0 + self.rng.next() * 6.0
                 } else {
@@ -547,6 +578,10 @@ impl Sky {
         let mut bird = [0f32; 32];
         for (i, b) in self.birds.iter().enumerate() {
             bird[i * 4..i * 4 + 4].copy_from_slice(&[b.x, b.y, b.h, 0.68 + 0.32 * b.ph.cos()]);
+        }
+        let mut meteor = [0f32; 16];
+        for (i, m) in self.meteors.iter().take(4).enumerate() {
+            meteor[i * 4..i * 4 + 4].copy_from_slice(m);
         }
         let phase = self.effective_phase();
         let plane = [self.plane.x, self.plane.y, self.plane.dir, if self.plane.active { 220.0 } else { 0.0 }];
@@ -567,6 +602,7 @@ impl Sky {
         p.f4v(gl, "uPlane", &plane);
         p.f1(gl, "uBirdN", self.birds.len() as f32);
         p.f4v(gl, "uBird", &bird);
+        p.f4v(gl, "uMeteor", &meteor);
         unsafe { gl.draw_arrays(glow::TRIANGLES, 0, 3) };
     }
 }
@@ -579,6 +615,10 @@ impl Theme for Sky {
 
     fn frame(&mut self, gl: &glow::Context, sh: &mut Shared, dt: f32, now: f64) {
         self.b.update_mix(now);
+        self.meteors.retain_mut(|m| {
+            m[2] += dt;
+            m[2] < 1.4
+        });
         self.step_sky_clouds(dt);
         self.step_birds(dt);
         self.step_plane(dt);
@@ -589,6 +629,63 @@ impl Theme for Sky {
         self.b.settle();
         self.mass_valid = false;
         self.draw(gl, sh, now);
+    }
+
+    fn handle_click(&mut self, _gl: &glow::Context, x: f32, y: f32, _now: f64) {
+        let phase = self.effective_phase();
+        if phase > 2.5 {
+            if self.meteors.len() >= 4 {
+                self.meteors.remove(0);
+            }
+            let ang = if x > self.b.w * 0.55 {
+                PI - (0.46 + self.rng.next() * 0.28)
+            } else {
+                0.46 + self.rng.next() * 0.28
+            };
+            let sx = x - ang.cos() * 42.0;
+            let sy = (y - ang.sin() * 42.0).max(16.0);
+            self.meteors.push([sx, sy, 0.0, ang]);
+
+            if self.b.cur_s(x, y) < 28.0 {
+                let active_puffs: Vec<usize> = (0..self.sky.len())
+                    .filter(|&i| self.sky[i].ttl.is_some() && !self.sky[i].dying)
+                    .collect();
+                if active_puffs.len() >= 3 {
+                    self.sky[active_puffs[0]].dying = true;
+                }
+                let c = self.make_puff_cloud(x, y);
+                self.sky.push(c);
+            }
+        } else {
+            let active_puffs: Vec<usize> = (0..self.sky.len())
+                .filter(|&i| self.sky[i].ttl.is_some() && !self.sky[i].dying)
+                .collect();
+            if active_puffs.len() >= 4 {
+                self.sky[active_puffs[0]].dying = true;
+            }
+            let c = self.make_puff_cloud(x, y);
+            self.sky.push(c);
+
+            for b in &mut self.birds {
+                if (b.x - x).hypot(b.y - y) < 520.0 {
+                    b.h = turn_toward(b.h, (y - b.y).atan2(x - b.x), 1.05);
+                    b.flap = true;
+                    b.flap_t = 1.6;
+                }
+            }
+
+            if !self.plane.active {
+                self.plane.active = true;
+                self.plane.forced = true;
+                self.plane.dir = if x < self.b.w * 0.5 { 1.0 } else { -1.0 };
+                self.plane.x = if self.plane.dir > 0.0 { -32.0 } else { self.b.w + 32.0 };
+                self.plane.y = y.clamp(36.0, (self.b.h - TASKBAR - 60.0).max(60.0));
+            }
+        }
+    }
+
+    fn is_interacting(&self, _now: f64) -> bool {
+        !self.meteors.is_empty() || self.plane.forced || self.sky.iter().any(|c| c.ttl.is_some())
     }
 
     fn destroy(&mut self, gl: &glow::Context) {

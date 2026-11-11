@@ -16,6 +16,7 @@ uniform float uCatTail;
 uniform highp sampler2D uCirc;   // Các hình tròn của mây chia theo ô lưới
 uniform vec2 uCGrid;             // Số lượng ô lưới
 uniform float uCellG;            // Kích thước ô lưới (px)
+uniform vec4 uBurst[6];          // Chùm hạt bồ công anh: x, y, age, seed
 out vec4 o;
 
 // ---- Bảng màu ----
@@ -127,6 +128,30 @@ void main() {
   col=mix(col,cat.rgb,cat.a*inCat);
 #endif
 
+  // ---------- Bóng hạt bồ công anh trên cỏ ----------
+  for (int bi = 0; bi < 6; bi++) {
+    vec4 b = uBurst[bi];
+    if (b.w <= 0.0) continue;
+    float age = b.z;
+    vec2 bCenter = b.xy + vec2(32.0, -7.0) * age + vec2(18.0, 24.0);
+    if (dot(p - bCenter, p - bCenter) > 190.0 * 190.0) continue;
+    float alpha = ss(0.0, 0.14, age) * (1.0 - ss(3.2, 4.5, age));
+    float ease = 1.0 - exp(-age * 2.4);
+    for (int k = 0; k < 12; k++) {
+      float fk = float(k);
+      float h1 = hash2(vec2(fk * 3.7, b.w * 41.3));
+      float h2 = hash2(vec2(fk * 7.1 + 1.9, b.w * 29.7));
+      float ang = -1.15 + 2.3 * (fk + 0.5) / 12.0 + (h1 - 0.5) * 0.25;
+      float spd = 22.0 + 26.0 * h2;
+      vec2 pos = b.xy + vec2(cos(ang), sin(ang)) * (spd * ease * 1.45) + vec2(32.0, -7.0) * age;
+      pos += vec2(sin(age * 2.2 + h1 * 6.28) * 5.0, cos(age * 2.7 + h2 * 6.28) * 6.5) + vec2(18.0, 24.0);
+      float ds = length(p - pos);
+      if (ds < 6.0) {
+        col = mix(col, col * SHADOW, (1.0 - ss(1.0, 5.5, ds)) * 0.28 * alpha);
+      }
+    }
+  }
+
   // ---------- Bóng mây đổ trên đồng cỏ ----------
   float sd = cloudDist(p - SHADOW_OFF);
   col = mix(col, col * SHADOW, ss(3.0, -3.0, sd) * 0.85);
@@ -139,6 +164,41 @@ void main() {
     vec3 cc = fc.y > -1e8 ? mix(CLOUD_BODY, CLOUD_SH, fc.w * 0.6) : mix(CLOUD_BODY, CLOUD_SH, 0.45);
     cc = mix(cc, CLOUD_HI, hi);
     col = mix(col, cc, ss(1.0, -1.0, d));
+  }
+
+  // ---------- Chùm hạt hoa bồ công anh bay theo gió ----------
+  for (int bi = 0; bi < 6; bi++) {
+    vec4 b = uBurst[bi];
+    if (b.w <= 0.0) continue;
+    float age = b.z;
+    vec2 bCenter = b.xy + vec2(32.0, -7.0) * age;
+    if (dot(p - bCenter, p - bCenter) > 190.0 * 190.0) continue;
+    float alpha = ss(0.0, 0.14, age) * (1.0 - ss(3.2, 4.5, age));
+    float ease = 1.0 - exp(-age * 2.4);
+    for (int k = 0; k < 12; k++) {
+      float fk = float(k);
+      float h1 = hash2(vec2(fk * 3.7, b.w * 41.3));
+      float h2 = hash2(vec2(fk * 7.1 + 1.9, b.w * 29.7));
+      float ang = -1.15 + 2.3 * (fk + 0.5) / 12.0 + (h1 - 0.5) * 0.25;
+      float spd = 22.0 + 26.0 * h2;
+      vec2 pos = b.xy + vec2(cos(ang), sin(ang)) * (spd * ease * 1.45) + vec2(32.0, -7.0) * age;
+      pos += vec2(sin(age * 2.2 + h1 * 6.28) * 5.0, cos(age * 2.7 + h2 * 6.28) * 6.5);
+      vec2 dq = p - pos;
+      if (dot(dq, dq) > 196.0) continue;
+      float sang = -0.35 + 0.32 * sin(age * 2.5 + h1 * 6.28);
+      vec2 tip = pos + vec2(-sin(sang), cos(sang)) * 9.0;
+      float stemD = segD(p, pos, tip);
+      col = mix(col, INK, (1.0 - ss(0.35, 1.15, stemD)) * 0.9 * alpha);
+      col = mix(col, vec3(0.32, 0.25, 0.14), (1.0 - ss(0.7, 1.8, length(p - tip))) * 0.95 * alpha);
+      float rd = length(dq);
+      if (rd < 7.8) {
+        // Viền bóng nhẹ để chùm lông trắng nổi bật trên cả nền cỏ lẫn nền mây
+        col = mix(col, col * vec3(0.78, 0.85, 0.74), (1.0 - ss(3.0, 7.2, rd)) * 0.32 * alpha);
+        float rays = 0.45 + 0.55 * max(0.0, cos(atan(dq.y, dq.x) * 9.0 + h2 * 6.28));
+        float fluff = clamp((1.0 - ss(1.8, 6.8, rd)) * rays + (1.0 - ss(0.0, 3.1, rd)) * 0.85, 0.0, 1.0);
+        col = mix(col, vec3(1.0, 1.0, 0.99), fluff * alpha);
+      }
+    }
   }
   if (uDebug > 0.5) col = mix(col, vec3(0.9, 0.15, 0.15), 1.0 - ss(0.0, 1.5, abs(d)));
   o = vec4(col, 1.0);

@@ -40,6 +40,7 @@ struct PlumBird {
     turn: f32,
     ph: f32,
     timer: f32,
+    boost: f32,
 }
 
 pub struct PlumBlossoms {
@@ -47,6 +48,8 @@ pub struct PlumBlossoms {
     p: Params,
     rng: Rng,
     birds: Vec<PlumBird>,
+    bursts: Vec<[f32; 4]>,
+    shake: f32,
     t0: f64,
 }
 
@@ -57,6 +60,8 @@ impl PlumBlossoms {
             p,
             rng: Rng::new(rng_seed),
             birds: Vec::new(),
+            bursts: Vec::new(),
+            shake: 0.0,
             t0: now,
         };
         s.commit(gl, true, now);
@@ -79,6 +84,7 @@ impl PlumBlossoms {
             turn: (self.rng.next() - 0.5) * 0.25,
             ph: self.rng.next() * 6.28,
             timer: 2.0 + self.rng.next() * 4.0,
+            boost: 0.0,
         }
     }
 
@@ -94,6 +100,7 @@ impl PlumBlossoms {
             let r1 = self.rng.next();
             let r2 = self.rng.next();
             let b = &mut self.birds[i];
+            b.boost = (b.boost - dt * 0.55).max(0.0);
             b.timer -= dt;
             if b.timer <= 0.0 {
                 b.turn = (r1 - 0.5) * 0.5;
@@ -111,10 +118,11 @@ impl PlumBlossoms {
             if b.y > h2 - m {
                 b.turn -= if b.a.sin() > 0.0 { 0.8 } else { 0.3 } * dt;
             }
+            let mult = 1.0 + 0.65 * b.boost;
             b.a += b.turn * dt;
-            b.x += b.a.cos() * b.sp * dt;
-            b.y += b.a.sin() * b.sp * dt;
-            b.ph += dt * 7.2;
+            b.x += b.a.cos() * b.sp * mult * dt;
+            b.y += b.a.sin() * b.sp * mult * dt;
+            b.ph += dt * (7.2 + 5.0 * b.boost);
         }
     }
 
@@ -124,6 +132,10 @@ impl PlumBlossoms {
         for (i, b) in self.birds.iter().enumerate() {
             bird[i * 4..i * 4 + 4].copy_from_slice(&[b.x, b.y, b.a, b.ph]);
         }
+        let mut burst = [0f32; 24];
+        for (i, b) in self.bursts.iter().take(6).enumerate() {
+            burst[i * 4..i * 4 + 4].copy_from_slice(b);
+        }
         let p = &mut sh.prog;
         unsafe { gl.use_program(Some(p.prog)) };
         self.b.bind_common(gl, p, sh.noise_tex, sh.seed, t);
@@ -131,8 +143,10 @@ impl PlumBlossoms {
         p.f1(gl, "uPetals", self.p.petals);
         p.f1(gl, "uWind", self.p.wind);
         p.f1(gl, "uMist", self.p.mist);
+        p.f1(gl, "uShake", self.shake);
         p.f1(gl, "uBirdN", self.birds.len() as f32);
         p.f4v(gl, "uBird", &bird);
+        p.f4v(gl, "uBurst", &burst);
         unsafe { gl.draw_arrays(glow::TRIANGLES, 0, 3) };
     }
 }
@@ -145,6 +159,11 @@ impl Theme for PlumBlossoms {
 
     fn frame(&mut self, gl: &glow::Context, sh: &mut Shared, dt: f32, now: f64) {
         self.b.update_mix(now);
+        self.shake = (self.shake - dt * 0.7).max(0.0);
+        self.bursts.retain_mut(|b| {
+            b[2] += dt;
+            b[2] < 4.5
+        });
         self.step_birds(dt);
         self.draw(gl, sh, now);
     }
@@ -152,6 +171,30 @@ impl Theme for PlumBlossoms {
     fn settle(&mut self, gl: &glow::Context, sh: &mut Shared, now: f64) {
         self.b.settle();
         self.draw(gl, sh, now);
+    }
+
+    fn handle_click(&mut self, _gl: &glow::Context, x: f32, y: f32, _now: f64) {
+        self.shake = 1.0;
+        if self.bursts.len() >= 6 {
+            self.bursts.remove(0);
+        }
+        let seed = 0.15 + self.rng.next() * 0.85;
+        self.bursts.push([x, y, 0.0, seed]);
+
+        for b in &mut self.birds {
+            if (b.x - x).hypot(b.y - y) < 520.0 {
+                let target = (y - b.y).atan2(x - b.x) + (self.rng.next() - 0.5) * 0.4;
+                let mut d = target - b.a;
+                d = d.sin().atan2(d.cos());
+                b.a += d * 0.75;
+                b.boost = 1.0;
+                b.timer = 2.2;
+            }
+        }
+    }
+
+    fn is_interacting(&self, _now: f64) -> bool {
+        self.shake > 0.01 || !self.bursts.is_empty()
     }
 
     fn destroy(&mut self, gl: &glow::Context) {

@@ -41,6 +41,7 @@ struct SkyCloud {
     grow: f32,
     hw: f32,
     dying: bool,
+    ttl: Option<f32>,
 }
 
 pub struct Meadow {
@@ -48,6 +49,7 @@ pub struct Meadow {
     p: Params,
     rng: Rng,
     sky: Vec<SkyCloud>,
+    bursts: Vec<[f32; 4]>,
     flow_t: f32,
     mass: Vec<f32>,
     mass_t: f32,
@@ -66,6 +68,7 @@ impl Meadow {
             p,
             rng: Rng::new(rng_seed),
             sky: Vec::new(),
+            bursts: Vec::new(),
             flow_t: 0.0,
             mass: Vec::new(),
             mass_t: -1e9,
@@ -161,13 +164,26 @@ impl Meadow {
         layer(rng, &mut circles, 24.0 * 0.85, [0.45, 0.8], -0.6 * rm, &|ci| sstep(0.0, -0.2 * rm, ci) * (1.0 - sstep(-0.4 * rm, -0.6 * rm, ci)), true);
         let y = 80.0 + self.rng.next() * (self.b.h - TASKBAR - 120.0);
         let v = 0.7 + self.rng.next() * 0.6;
-        SkyCloud { x, y, circles, v, grow: 0.0, hw: (-x0).max(x1) + 20.0, dying: false }
+        SkyCloud { x, y, circles, v, grow: 0.0, hw: (-x0).max(x1) + 20.0, dying: false, ttl: None }
+    }
+
+    fn make_puff_cloud(&mut self, x: f32, y: f32) -> SkyCloud {
+        let mut c = self.make_sky_cloud((x - 96.0).max(40.0));
+        c.y = (y + 42.0).min(self.b.h - TASKBAR - 50.0);
+        for cir in &mut c.circles {
+            cir[0] *= 0.44;
+            cir[1] *= 0.44;
+            cir[2] *= 0.48;
+        }
+        c.hw *= 0.48;
+        c.ttl = Some(6.5);
+        c
     }
 
     fn step_sky_clouds(&mut self, dt: f32) {
         self.flow_t += dt * self.p.flow;
         let want = (self.p.cover * 10.0).round() as usize;
-        let alive: Vec<usize> = (0..self.sky.len()).filter(|&i| !self.sky[i].dying).collect();
+        let alive: Vec<usize> = (0..self.sky.len()).filter(|&i| !self.sky[i].dying && self.sky[i].ttl.is_none()).collect();
         for &i in alive.iter().skip(want) {
             self.sky[i].dying = true;
         }
@@ -193,17 +209,28 @@ impl Meadow {
             i -= 1;
             let flow = self.p.flow;
             let c = &mut self.sky[i];
-            c.x += flow * 10.0 * c.v * dt;
-            c.grow = if c.dying { c.grow - dt * 0.5 } else { (c.grow + dt * 0.5).min(1.0) };
+            if let Some(ttl) = &mut c.ttl {
+                *ttl -= dt;
+                if *ttl <= 0.0 {
+                    c.dying = true;
+                }
+            }
+            let rate = if c.ttl.is_some() && !c.dying { 2.0 } else { 0.5 };
+            c.x += flow.max(0.25) * 10.0 * c.v * dt;
+            c.grow = if c.dying { c.grow - dt * 0.65 } else { (c.grow + dt * rate).min(1.0) };
             if c.grow <= 0.0 {
                 self.sky.remove(i);
                 continue;
             }
             if c.x - c.hw > w + 50.0 {
-                let hw = c.hw;
-                let mut n = self.make_sky_cloud(-hw - 50.0);
-                n.grow = 1.0;
-                self.sky[i] = n;
+                if c.ttl.is_some() {
+                    self.sky.remove(i);
+                } else {
+                    let hw = c.hw;
+                    let mut n = self.make_sky_cloud(-hw - 50.0);
+                    n.grow = 1.0;
+                    self.sky[i] = n;
+                }
             }
         }
     }
@@ -361,6 +388,10 @@ impl Meadow {
     fn draw(&mut self, gl: &glow::Context, sh: &mut Shared, now: f64) {
         let t = ((now - self.t0) / 1000.0) as f32;
         self.upload_circles(gl, t);
+        let mut burst = [0f32; 24];
+        for (i, b) in self.bursts.iter().take(6).enumerate() {
+            burst[i * 4..i * 4 + 4].copy_from_slice(b);
+        }
         let p = &mut sh.prog;
         unsafe { gl.use_program(Some(p.prog)) };
         self.b.bind_common(gl, p, sh.noise_tex, sh.seed, t);
@@ -372,6 +403,7 @@ impl Meadow {
         p.f2(gl, "uCGrid", self.cg_w as f32, self.cg_h as f32);
         p.f1(gl, "uCellG", CELL_G);
         p.f1(gl, "uEdge", self.p.edge);
+        p.f4v(gl, "uBurst", &burst);
         unsafe { gl.draw_arrays(glow::TRIANGLES, 0, 3) };
     }
 }
@@ -384,6 +416,10 @@ impl Theme for Meadow {
 
     fn frame(&mut self, gl: &glow::Context, sh: &mut Shared, dt: f32, now: f64) {
         self.b.update_mix(now);
+        self.bursts.retain_mut(|b| {
+            b[2] += dt;
+            b[2] < 4.5
+        });
         self.step_sky_clouds(dt);
         self.draw(gl, sh, now);
     }
@@ -392,6 +428,27 @@ impl Theme for Meadow {
         self.b.settle();
         self.mass_valid = false;
         self.draw(gl, sh, now);
+    }
+
+    fn handle_click(&mut self, _gl: &glow::Context, x: f32, y: f32, _now: f64) {
+        if self.bursts.len() >= 6 {
+            self.bursts.remove(0);
+        }
+        let seed = 0.15 + self.rng.next() * 0.85;
+        self.bursts.push([x, y, 0.0, seed]);
+
+        let active_puffs: Vec<usize> = (0..self.sky.len())
+            .filter(|&i| self.sky[i].ttl.is_some() && !self.sky[i].dying)
+            .collect();
+        if active_puffs.len() >= 4 {
+            self.sky[active_puffs[0]].dying = true;
+        }
+        let c = self.make_puff_cloud(x, y);
+        self.sky.push(c);
+    }
+
+    fn is_interacting(&self, _now: f64) -> bool {
+        !self.bursts.is_empty() || self.sky.iter().any(|c| c.ttl.is_some())
     }
 
     fn destroy(&mut self, gl: &glow::Context) {

@@ -70,6 +70,9 @@ pub struct Beach {
     rng: Rng,
     kayaks: Vec<Kayak>,
     birds: Vec<Bird>,
+    ripples: Vec<[f32; 4]>,
+    sand_marks: Vec<[f32; 4]>,
+    kayak_target: Option<(f32, f32, f32)>,
     t0: f64,
 }
 
@@ -81,7 +84,17 @@ fn turn_toward(h: f32, target: f32, rate: f32) -> f32 {
 
 impl Beach {
     pub fn new(gl: &glow::Context, w: f32, h: f32, buf_w: i32, buf_h: i32, scale: f32, seed: i32, p: Params, rng_seed: u64, now: f64) -> Self {
-        let mut s = Beach { b: Base::new(gl, w, h, buf_w, buf_h, scale, seed), p, rng: Rng::new(rng_seed), kayaks: Vec::new(), birds: Vec::new(), t0: now };
+        let mut s = Beach {
+            b: Base::new(gl, w, h, buf_w, buf_h, scale, seed),
+            p,
+            rng: Rng::new(rng_seed),
+            kayaks: Vec::new(),
+            birds: Vec::new(),
+            ripples: Vec::new(),
+            sand_marks: Vec::new(),
+            kayak_target: None,
+            t0: now,
+        };
         // startHostedMode(): icons = []; commit(true); syncBirds(false)
         s.commit(gl, true, now);
         s.sync_birds(false);
@@ -144,6 +157,15 @@ impl Beach {
                 let mut d = gy.atan2(gx) - kh;
                 d = d.sin().atan2(d.cos());
                 heading += d.signum() * d.abs().min(0.7 * dt);
+            } else if let Some((tx, ty, _)) = self.kayak_target {
+                let dist = (tx - kx).hypot(ty - ky);
+                if dist > 48.0 {
+                    heading = turn_toward(kh, (ty - ky).atan2(tx - kx), 1.4 * dt);
+                } else {
+                    self.kayaks[i].wander += dt * 0.3;
+                    let wv = self.b.noise.vnoise(self.kayaks[i].wander as f64, (i * 10) as f64, 0) as f32;
+                    heading += (wv - 0.5) * 0.25 * dt;
+                }
             } else {
                 self.kayaks[i].wander += dt * 0.3;
                 let wv = self.b.noise.vnoise(self.kayaks[i].wander as f64, (i * 10) as f64, 0) as f32;
@@ -187,8 +209,9 @@ impl Beach {
                 heading = kh + d.signum() * d.abs().min(dt);
             }
             let k = &mut self.kayaks[i];
-            k.ph += dt * 2.4;
-            let v = k.v * (0.75 + 0.25 * k.ph.sin().abs()) * speed;
+            let boost = if self.kayak_target.is_some() { 1.45 } else { 1.0 };
+            k.ph += dt * 2.4 * boost;
+            let v = k.v * boost * (0.75 + 0.25 * k.ph.sin().abs()) * speed;
             plans.push((heading, heading.cos() * v * dt, heading.sin() * v * dt));
         }
         for _ in 0..n {
@@ -309,7 +332,14 @@ impl Beach {
 
     fn draw(&mut self, gl: &glow::Context, sh: &mut Shared, now: f64) {
         let t = ((now - self.t0) / 1000.0) as f32;
-        let rip = [0f32; 24];
+        let mut rip = [0f32; 24];
+        for (i, r) in self.ripples.iter().take(6).enumerate() {
+            rip[i * 4..i * 4 + 4].copy_from_slice(r);
+        }
+        let mut sand = [0f32; 16];
+        for (i, sm) in self.sand_marks.iter().take(4).enumerate() {
+            sand[i * 4..i * 4 + 4].copy_from_slice(sm);
+        }
         let mut kay = [0f32; 16];
         for (i, k) in self.kayaks.iter().enumerate() {
             kay[i * 4..i * 4 + 4].copy_from_slice(&[k.x, k.y, k.h, k.ph]);
@@ -334,6 +364,7 @@ impl Beach {
         p.f1(gl, "uKayN", self.kayaks.len() as f32);
         p.f4v(gl, "uKay", &kay);
         p.f4v(gl, "uRip", &rip);
+        p.f4v(gl, "uSand", &sand);
         p.f1(gl, "uBirdN", self.birds.len() as f32);
         p.f4v(gl, "uBird", &bird);
         unsafe { gl.draw_arrays(glow::TRIANGLES, 0, 3) };
@@ -354,6 +385,20 @@ impl Theme for Beach {
 
     fn frame(&mut self, gl: &glow::Context, sh: &mut Shared, dt: f32, now: f64) {
         self.b.update_mix(now);
+        self.ripples.retain_mut(|r| {
+            r[2] += dt;
+            r[2] < 3.2
+        });
+        self.sand_marks.retain_mut(|m| {
+            m[2] += dt;
+            m[2] < 4.8
+        });
+        if let Some((_, _, ttl)) = &mut self.kayak_target {
+            *ttl -= dt;
+            if *ttl <= 0.0 {
+                self.kayak_target = None;
+            }
+        }
         self.step_kayaks(dt);
         self.step_birds(dt);
         self.draw(gl, sh, now);
@@ -362,6 +407,36 @@ impl Theme for Beach {
     fn settle(&mut self, gl: &glow::Context, sh: &mut Shared, now: f64) {
         self.b.settle();
         self.draw(gl, sh, now);
+    }
+
+    fn handle_click(&mut self, _gl: &glow::Context, x: f32, y: f32, _now: f64) {
+        let s = self.b.cur_s(x, y);
+        if s > 2.0 {
+            if self.ripples.len() >= 6 {
+                self.ripples.remove(0);
+            }
+            self.ripples.push([x, y, 0.0, 1.35]);
+            if s > 90.0 {
+                self.kayak_target = Some((x, y, 6.5));
+            }
+            for b in &mut self.birds {
+                if (b.x - x).hypot(b.y - y) < 420.0 {
+                    b.h = turn_toward(b.h, (y - b.y).atan2(x - b.x), 0.9);
+                    b.flap = true;
+                    b.flap_t = 1.4;
+                }
+            }
+        } else {
+            if self.sand_marks.len() >= 4 {
+                self.sand_marks.remove(0);
+            }
+            let ang = self.rng.next() * PI * 2.0;
+            self.sand_marks.push([x, y, 0.0, ang + 1.0]);
+        }
+    }
+
+    fn is_interacting(&self, _now: f64) -> bool {
+        !self.ripples.is_empty() || !self.sand_marks.is_empty() || self.kayak_target.is_some()
     }
 
     fn destroy(&mut self, gl: &glow::Context) {

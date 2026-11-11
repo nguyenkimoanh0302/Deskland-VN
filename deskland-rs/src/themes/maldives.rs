@@ -76,6 +76,9 @@ pub struct Maldives {
     fish_schools: Vec<WaterActor>,
     turtles: Vec<WaterActor>,
     birds: Vec<Bird>,
+    ripples: Vec<[f32; 4]>,
+    sand_marks: Vec<[f32; 4]>,
+    bait: Option<(f32, f32, f32, f32)>, // x, y, age, ttl
     t0: f64,
 }
 
@@ -95,6 +98,9 @@ impl Maldives {
             fish_schools: Vec::new(),
             turtles: Vec::new(),
             birds: Vec::new(),
+            ripples: Vec::new(),
+            sand_marks: Vec::new(),
+            bait: None,
             t0: now,
         };
         s.commit(gl, true, now);
@@ -159,12 +165,25 @@ impl Maldives {
         }
     }
 
-    fn step_water_list(b: &Base, rng: &mut Rng, list: &mut Vec<WaterActor>, dt: f32, min_depth: f32, ph_rate: f32, sp_depth: f32, sp_dist: f32, v0: f32, dv: f32) {
+    fn step_water_list(
+        b: &Base,
+        rng: &mut Rng,
+        list: &mut Vec<WaterActor>,
+        dt: f32,
+        min_depth: f32,
+        ph_rate: f32,
+        sp_depth: f32,
+        sp_dist: f32,
+        v0: f32,
+        dv: f32,
+        attract: Option<(f32, f32)>,
+    ) {
         let (w, h) = (b.w, b.h);
         let mut i = list.len();
         while i > 0 {
             i -= 1;
             let k = &mut list[i];
+            let mut boost = 1.0f32;
             let ax = k.x + k.h.cos() * 65.0;
             let ay = k.y + k.h.sin() * 65.0;
             let margin = ax < 45.0 || ay < 45.0 || ax > w - 45.0 || ay > h - TASKBAR - 45.0;
@@ -178,13 +197,28 @@ impl Maldives {
                 let mut d = gy.atan2(gx) - k.h;
                 d = d.sin().atan2(d.cos());
                 k.h += d.signum() * d.abs().min(0.8 * dt);
+            } else if let Some((tx, ty)) = attract {
+                let dist = (tx - k.x).hypot(ty - k.y);
+                if dist < 480.0 {
+                    let target_ang = if dist > 34.0 {
+                        (ty - k.y).atan2(tx - k.x)
+                    } else {
+                        (ty - k.y).atan2(tx - k.x) + 1.3
+                    };
+                    k.h = turn_toward(k.h, target_ang, 1.9 * dt);
+                    boost = if dist > 40.0 { 1.7 } else { 0.95 };
+                } else {
+                    k.wander += dt * 0.35;
+                    let wv = b.noise.vnoise(k.wander as f64, (i * 10) as f64, 0) as f32;
+                    k.h += (wv - 0.5) * 0.35 * dt;
+                }
             } else {
                 k.wander += dt * 0.35;
                 let wv = b.noise.vnoise(k.wander as f64, (i * 10) as f64, 0) as f32;
                 k.h += (wv - 0.5) * 0.35 * dt;
             }
-            k.ph += dt * ph_rate;
-            let v = k.v * (0.8 + 0.2 * (k.ph * 0.5).sin().abs());
+            k.ph += dt * ph_rate * boost;
+            let v = k.v * boost * (0.8 + 0.2 * (k.ph * 0.5).sin().abs());
             k.x += k.h.cos() * v * dt;
             k.y += k.h.sin() * v * dt;
             let (kx, ky) = (k.x, k.y);
@@ -272,7 +306,18 @@ impl Maldives {
 
     fn draw(&mut self, gl: &glow::Context, sh: &mut Shared, now: f64) {
         let t = ((now - self.t0) / 1000.0) as f32;
-        let rip = [0f32; 24];
+        let mut rip = [0f32; 24];
+        for (i, r) in self.ripples.iter().take(6).enumerate() {
+            rip[i * 4..i * 4 + 4].copy_from_slice(r);
+        }
+        let mut sand = [0f32; 16];
+        for (i, sm) in self.sand_marks.iter().take(4).enumerate() {
+            sand[i * 4..i * 4 + 4].copy_from_slice(sm);
+        }
+        let bait_u = match self.bait {
+            Some((bx, by, age, ttl)) => [bx, by, age, (ttl / 6.0).clamp(0.0, 1.0)],
+            None => [0.0; 4],
+        };
         let mut kay = [0f32; 16];
         for (i, k) in self.kayaks.iter().enumerate() {
             kay[i * 4..i * 4 + 4].copy_from_slice(&[k.x, k.y, k.h, k.ph]);
@@ -309,6 +354,8 @@ impl Maldives {
         p.f1(gl, "uTurtN", self.turtles.len() as f32);
         p.f4v(gl, "uTurt", &turt);
         p.f4v(gl, "uRip", &rip);
+        p.f4v(gl, "uSand", &sand);
+        p.f4v(gl, "uBait", &bait_u);
         p.f1(gl, "uBirdN", self.birds.len() as f32);
         p.f4v(gl, "uBird", &bird);
         unsafe { gl.draw_arrays(glow::TRIANGLES, 0, 3) };
@@ -333,9 +380,26 @@ impl Theme for Maldives {
 
     fn frame(&mut self, gl: &glow::Context, sh: &mut Shared, dt: f32, now: f64) {
         self.b.update_mix(now);
-        Self::step_water_list(&self.b, &mut self.rng, &mut self.kayaks, dt, 150.0, 2.4, 170.0, 160.0, 7.0, 4.0);
-        Self::step_water_list(&self.b, &mut self.rng, &mut self.fish_schools, dt, 90.0, 4.2, 95.0, 130.0, 10.0, 6.0);
-        Self::step_water_list(&self.b, &mut self.rng, &mut self.turtles, dt, 75.0, 1.8, 80.0, 120.0, 4.5, 2.5);
+        self.ripples.retain_mut(|r| {
+            r[2] += dt;
+            r[2] < 3.2
+        });
+        self.sand_marks.retain_mut(|m| {
+            m[2] += dt;
+            m[2] < 4.8
+        });
+        if let Some((_, _, age, ttl)) = &mut self.bait {
+            *age += dt;
+            *ttl -= dt;
+            if *ttl <= 0.0 {
+                self.bait = None;
+            }
+        }
+        let attract = self.bait.map(|(x, y, _, _)| (x, y));
+        let kay_attract = attract.filter(|&(x, y)| self.b.cur_s(x, y) > 150.0);
+        Self::step_water_list(&self.b, &mut self.rng, &mut self.kayaks, dt, 150.0, 2.4, 170.0, 160.0, 7.0, 4.0, kay_attract);
+        Self::step_water_list(&self.b, &mut self.rng, &mut self.fish_schools, dt, 90.0, 4.2, 95.0, 130.0, 10.0, 6.0, attract);
+        Self::step_water_list(&self.b, &mut self.rng, &mut self.turtles, dt, 75.0, 1.8, 80.0, 120.0, 4.5, 2.5, attract);
         self.step_birds(dt);
         self.draw(gl, sh, now);
     }
@@ -343,6 +407,36 @@ impl Theme for Maldives {
     fn settle(&mut self, gl: &glow::Context, sh: &mut Shared, now: f64) {
         self.b.settle();
         self.draw(gl, sh, now);
+    }
+
+    fn handle_click(&mut self, _gl: &glow::Context, x: f32, y: f32, _now: f64) {
+        let s = self.b.cur_s(x, y);
+        if s > 2.0 {
+            if self.ripples.len() >= 6 {
+                self.ripples.remove(0);
+            }
+            self.ripples.push([x, y, 0.0, 1.35]);
+            if s > 55.0 {
+                self.bait = Some((x, y, 0.0, 6.0));
+            }
+            for b in &mut self.birds {
+                if (b.x - x).hypot(b.y - y) < 400.0 {
+                    b.h = turn_toward(b.h, (y - b.y).atan2(x - b.x), 0.85);
+                    b.flap = true;
+                    b.flap_t = 1.3;
+                }
+            }
+        } else {
+            if self.sand_marks.len() >= 4 {
+                self.sand_marks.remove(0);
+            }
+            let ang = self.rng.next() * PI * 2.0;
+            self.sand_marks.push([x, y, 0.0, ang + 1.0]);
+        }
+    }
+
+    fn is_interacting(&self, _now: f64) -> bool {
+        !self.ripples.is_empty() || !self.sand_marks.is_empty() || self.bait.is_some()
     }
 
     fn destroy(&mut self, gl: &glow::Context) {

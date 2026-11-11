@@ -24,6 +24,7 @@ pub enum Action {
     Idle(u32),
     Sync(bool),
     Autostart(bool),
+    Interaction(bool),
 }
 
 /// Trạng thái thật mà giao diện hiển thị.
@@ -36,6 +37,7 @@ pub struct State {
     pub sync: bool,
     pub autostart: bool,
     pub hotkey: bool,
+    pub interaction: bool,
 }
 
 pub struct ParamDef {
@@ -182,6 +184,7 @@ const ID_SAVER: usize = 1303;
 const ID_IDLE: usize = 1304;
 const ID_SYNC: usize = 1305;
 const ID_AUTO: usize = 1306;
+const ID_INTERACTION: usize = 1307;
 const ID_ROW: usize = 1100;
 
 const TBM_GETPOS_: u32 = WM_USER;
@@ -213,6 +216,7 @@ struct Ui {
     idle: HWND,
     sync: HWND,
     auto: HWND,
+    interaction: HWND,
     note: HWND,
 }
 
@@ -331,7 +335,7 @@ pub fn open(state: &State) {
         let dpi = GetDpiForSystem().max(96);
         let s = dpi as f32 / 96.0;
         let style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-        let mut r = RECT { left: 0, top: 0, right: (540.0 * s) as i32, bottom: (720.0 * s) as i32 };
+        let mut r = RECT { left: 0, top: 0, right: (540.0 * s) as i32, bottom: (736.0 * s) as i32 };
         AdjustWindowRectEx(&mut r, style, 0, 0);
         let (w, h) = (r.right - r.left, r.bottom - r.top);
         let (sw, sh) = (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
@@ -372,6 +376,7 @@ pub fn open(state: &State) {
             rows: Vec::new(),
             adaptive: std::ptr::null_mut(),
             theme_combo: std::ptr::null_mut(),
+            interaction: std::ptr::null_mut(),
             saver_now: std::ptr::null_mut(),
             saver: std::ptr::null_mut(),
             idle: std::ptr::null_mut(),
@@ -412,9 +417,10 @@ pub fn open(state: &State) {
             0,
             false,
         );
-        let y2 = y + 204;
+        let y2 = y + 202;
         ui.ctl("STATIC", "Chung", 0, 20, y2, 300, 24, 0, true);
         ui.auto = ui.ctl("BUTTON", "Khởi động cùng Windows", chk, 20, y2 + 30, 400, 26, ID_AUTO, false);
+        ui.interaction = ui.ctl("BUTTON", "Tương tác chuột trên màn hình nền", chk, 20, y2 + 60, 400, 26, ID_INTERACTION, false);
         UI.with(|u| *u.borrow_mut() = Some(ui));
         sync(state);
         ShowWindow(hwnd, SW_SHOWNORMAL);
@@ -445,6 +451,7 @@ pub fn sync(state: &State) {
             let idx = IDLE_CHOICES.iter().enumerate().min_by_key(|(_, &m)| (m as i64 - state.idle as i64).abs()).map(|(i, _)| i).unwrap_or(3);
             SendMessageW(ui.idle, CB_SETCURSEL, idx, 0);
             set_check(ui.sync, state.sync);
+            set_check(ui.interaction, state.interaction);
             set_check(ui.auto, state.autostart);
             let t = if state.hotkey { "Khóa với cảnh động (Ctrl+Alt+L)" } else { "Khóa với cảnh động" };
             SetWindowTextW(ui.saver_now, wide(t).as_ptr());
@@ -471,6 +478,7 @@ unsafe extern "system" fn proc_(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESUL
                 (ID_SAVER_NOW, BN_CLICKED) => push(Action::SaverNow),
                 (ID_SAVER, BN_CLICKED) => push(Action::Saver(checked(ctl))),
                 (ID_SYNC, BN_CLICKED) => push(Action::Sync(checked(ctl))),
+                (ID_INTERACTION, BN_CLICKED) => push(Action::Interaction(checked(ctl))),
                 (ID_AUTO, BN_CLICKED) => push(Action::Autostart(checked(ctl))),
                 (ID_IDLE, CBN_SELCHANGE) => {
                     let i = SendMessageW(ctl, CB_GETCURSEL, 0, 0);

@@ -53,6 +53,7 @@ struct SkyCloud {
     grow: f32,
     hw: f32,
     dying: bool,
+    ttl: Option<f32>,
 }
 
 struct Craft {
@@ -85,6 +86,8 @@ pub struct Ocean {
     boats: Vec<Craft>,
     yachts: Vec<Craft>,
     birds: Vec<Bird>,
+    ripples: Vec<[f32; 4]>,
+    waypoint: Option<(f32, f32, f32)>,
     flow_t: f32,
     mass: Vec<f32>,
     mass_t: f32,
@@ -112,6 +115,8 @@ impl Ocean {
             boats: Vec::new(),
             yachts: Vec::new(),
             birds: Vec::new(),
+            ripples: Vec::new(),
+            waypoint: None,
             flow_t: 0.0,
             mass: Vec::new(),
             mass_t: -1e9,
@@ -173,13 +178,14 @@ impl Ocean {
         }
     }
 
-    fn step_crafts(b: &Base, rng: &mut Rng, list: &mut [Craft], dt: f32, min_dist: f32, v_base: f32, v_span: f32) {
+    fn step_crafts(b: &Base, rng: &mut Rng, list: &mut [Craft], dt: f32, min_dist: f32, v_base: f32, v_span: f32, waypoint: Option<(f32, f32)>) {
         let (w, h) = (b.w, b.h);
         let mut i = list.len();
         while i > 0 {
             i -= 1;
             let (kx, ky, kh, kv, mut kwander, mut kph) = (list[i].x, list[i].y, list[i].h, list[i].v, list[i].wander, list[i].ph);
             let mut heading = kh;
+            let mut boost = 1.0f32;
             let ax = kx + kh.cos() * 70.0;
             let ay = ky + kh.sin() * 70.0;
             let margin = ax < 50.0 || ay < 50.0 || ax > w - 50.0 || ay > h - TASKBAR - 50.0;
@@ -193,14 +199,24 @@ impl Ocean {
                 let mut d = gy.atan2(gx) - kh;
                 d = d.sin().atan2(d.cos());
                 heading += d.signum() * d.abs().min(0.75 * dt);
+            } else if let Some((tx, ty)) = waypoint {
+                let dist = (tx - kx).hypot(ty - ky);
+                if dist > 42.0 && dist < 520.0 {
+                    heading = turn_toward(kh, (ty - ky).atan2(tx - kx), 1.45 * dt);
+                    boost = 1.45;
+                } else {
+                    kwander += dt * 0.25;
+                    let wv = b.noise.vnoise(kwander as f64, (i * 10) as f64, 0) as f32;
+                    heading += (wv - 0.5) * 0.25 * dt;
+                }
             } else {
                 kwander += dt * 0.25;
                 let wv = b.noise.vnoise(kwander as f64, (i * 10) as f64, 0) as f32;
                 heading += (wv - 0.5) * 0.25 * dt;
             }
-            kph += dt * 1.8;
-            let nx = kx + heading.cos() * kv * dt;
-            let ny = ky + heading.sin() * kv * dt;
+            kph += dt * 1.8 * boost;
+            let nx = kx + heading.cos() * kv * boost * dt;
+            let ny = ky + heading.sin() * kv * boost * dt;
             list[i].x = nx;
             list[i].y = ny;
             list[i].h = heading;
@@ -289,13 +305,26 @@ impl Ocean {
         layer(rng, &mut circles, 24.0 * 0.85, [0.45, 0.8], -0.6 * rm, &|ci| sstep(0.0, -0.2 * rm, ci) * (1.0 - sstep(-0.4 * rm, -0.6 * rm, ci)), true);
         let y = 80.0 + self.rng.next() * (self.b.h - TASKBAR - 120.0);
         let v = 0.7 + self.rng.next() * 0.6;
-        SkyCloud { x, y, circles, v, grow: 0.0, hw: (-x0).max(x1) + 20.0, dying: false }
+        SkyCloud { x, y, circles, v, grow: 0.0, hw: (-x0).max(x1) + 20.0, dying: false, ttl: None }
+    }
+
+    fn make_puff_cloud(&mut self, x: f32, y: f32) -> SkyCloud {
+        let mut c = self.make_sky_cloud(x);
+        c.y = y + 14.0;
+        for cir in &mut c.circles {
+            cir[0] *= 0.58;
+            cir[1] *= 0.58;
+            cir[2] *= 0.62;
+        }
+        c.hw *= 0.6;
+        c.ttl = Some(6.5);
+        c
     }
 
     fn step_sky_clouds(&mut self, dt: f32) {
         self.flow_t += dt * self.p.flow;
         let want = (self.p.cover * 10.0).round() as usize;
-        let alive: Vec<usize> = (0..self.sky.len()).filter(|&i| !self.sky[i].dying).collect();
+        let alive: Vec<usize> = (0..self.sky.len()).filter(|&i| !self.sky[i].dying && self.sky[i].ttl.is_none()).collect();
         for &i in alive.iter().skip(want) {
             self.sky[i].dying = true;
         }
@@ -320,17 +349,28 @@ impl Ocean {
         let mut i = self.sky.len();
         while i > 0 {
             i -= 1;
-            self.sky[i].x += flow * 12.0 * self.sky[i].v * dt;
-            self.sky[i].grow = if self.sky[i].dying { self.sky[i].grow - dt * 0.5 } else { (self.sky[i].grow + dt * 0.5).min(1.0) };
+            if let Some(ttl) = &mut self.sky[i].ttl {
+                *ttl -= dt;
+                if *ttl <= 0.0 {
+                    self.sky[i].dying = true;
+                }
+            }
+            let rate = if self.sky[i].ttl.is_some() && !self.sky[i].dying { 2.2 } else { 0.5 };
+            self.sky[i].x += flow.max(0.25) * 12.0 * self.sky[i].v * dt;
+            self.sky[i].grow = if self.sky[i].dying { self.sky[i].grow - dt * 0.65 } else { (self.sky[i].grow + dt * rate).min(1.0) };
             if self.sky[i].grow <= 0.0 {
                 self.sky.remove(i);
                 continue;
             }
             if self.sky[i].x - self.sky[i].hw > w + 50.0 {
-                let hw = self.sky[i].hw;
-                let mut n = self.make_sky_cloud(-hw - 50.0);
-                n.grow = 1.0;
-                self.sky[i] = n;
+                if self.sky[i].ttl.is_some() {
+                    self.sky.remove(i);
+                } else {
+                    let hw = self.sky[i].hw;
+                    let mut n = self.make_sky_cloud(-hw - 50.0);
+                    n.grow = 1.0;
+                    self.sky[i] = n;
+                }
             }
         }
     }
@@ -577,6 +617,10 @@ impl Ocean {
         for (i, b) in self.birds.iter().enumerate() {
             bird[i * 4..i * 4 + 4].copy_from_slice(&[b.x, b.y, b.h, 0.68 + 0.32 * b.ph.cos()]);
         }
+        let mut rip = [0f32; 24];
+        for (i, r) in self.ripples.iter().take(6).enumerate() {
+            rip[i * 4..i * 4 + 4].copy_from_slice(r);
+        }
         let p = &mut sh.prog;
         unsafe { gl.use_program(Some(p.prog)) };
         self.b.bind_common(gl, p, sh.noise_tex, sh.seed, t);
@@ -594,6 +638,7 @@ impl Ocean {
         p.f4v(gl, "uYacht", &yacht);
         p.f1(gl, "uBirdN", self.birds.len() as f32);
         p.f4v(gl, "uBird", &bird);
+        p.f4v(gl, "uRip", &rip);
         unsafe { gl.draw_arrays(glow::TRIANGLES, 0, 3) };
     }
 }
@@ -614,9 +659,20 @@ impl Theme for Ocean {
 
     fn frame(&mut self, gl: &glow::Context, sh: &mut Shared, dt: f32, now: f64) {
         self.b.update_mix(now);
+        self.ripples.retain_mut(|r| {
+            r[2] += dt;
+            r[2] < 3.2
+        });
+        if let Some((_, _, ttl)) = &mut self.waypoint {
+            *ttl -= dt;
+            if *ttl <= 0.0 {
+                self.waypoint = None;
+            }
+        }
+        let wp = self.waypoint.map(|(x, y, _)| (x, y));
         self.step_sky_clouds(dt);
-        Self::step_crafts(&self.b, &mut self.rng, &mut self.boats, dt, 140.0, 6.5, 3.5);
-        Self::step_crafts(&self.b, &mut self.rng, &mut self.yachts, dt, 180.0, 14.0, 6.0);
+        Self::step_crafts(&self.b, &mut self.rng, &mut self.boats, dt, 140.0, 6.5, 3.5, wp);
+        Self::step_crafts(&self.b, &mut self.rng, &mut self.yachts, dt, 180.0, 14.0, 6.0, wp);
         self.step_birds(dt);
         self.draw(gl, sh, now);
     }
@@ -625,6 +681,36 @@ impl Theme for Ocean {
         self.b.settle();
         self.mass_valid = false;
         self.draw(gl, sh, now);
+    }
+
+    fn handle_click(&mut self, _gl: &glow::Context, x: f32, y: f32, _now: f64) {
+        let s = self.b.cur_s(x, y);
+        if s > 25.0 {
+            if self.ripples.len() >= 6 {
+                self.ripples.remove(0);
+            }
+            self.ripples.push([x, y, 0.0, 1.35]);
+            if s > 55.0 {
+                self.waypoint = Some((x, y, 6.5));
+            }
+            for b in &mut self.birds {
+                if (b.x - x).hypot(b.y - y) < 440.0 {
+                    b.h = turn_toward(b.h, (y - b.y).atan2(x - b.x), 0.9);
+                    b.flap = true;
+                    b.flap_t = 1.5;
+                }
+            }
+        } else {
+            let puff_count = self.sky.iter().filter(|c| c.ttl.is_some()).count();
+            if puff_count < 4 {
+                let c = self.make_puff_cloud(x, y);
+                self.sky.push(c);
+            }
+        }
+    }
+
+    fn is_interacting(&self, _now: f64) -> bool {
+        !self.ripples.is_empty() || self.waypoint.is_some() || self.sky.iter().any(|c| c.ttl.is_some())
     }
 
     fn destroy(&mut self, gl: &glow::Context) {

@@ -12,6 +12,7 @@ uniform float uYachtN;
 uniform vec4 uYacht[4];      // x, y, huong, pha
 uniform float uBirdN;
 uniform vec4 uBird[8];
+uniform vec4 uRip[6];        // x, y, age, strength
 out vec4 o;
 
 const vec3 SEA_LIGHT = vec3(0.24, 0.56, 0.90), SEA_MID = vec3(0.16, 0.45, 0.83), SEA_DEEP = vec3(0.11, 0.36, 0.74);
@@ -110,6 +111,18 @@ void main() {
   }
   col = mix(col, vec3(0.92, 0.98, 1.0), spark * 0.75);
   col *= 1.0 + (hash2(floor(p * (0.8 * max(uScale, 1.0)))) - 0.5) * 0.032;
+
+  // ---------- Gợn sóng bọt trắng tương tác trên mặt biển ----------
+  float rip = 0.0;
+  for (int i = 0; i < 6; i++) {
+    vec4 r = uRip[i];
+    if (r.w <= 0.0) continue;
+    float dist = length(p - r.xy), rad = r.z * 78.0;
+    rip = max(rip, (1.0 - ss(0.9, 2.8, abs(dist - rad))) * exp(-r.z * 1.15) * r.w);
+    rip = max(rip, (1.0 - ss(0.8, 2.2, abs(dist - rad * 0.56))) * exp(-r.z * 1.35) * r.w * 0.70);
+    rip = max(rip, (1.0 - ss(0.7, 1.8, abs(dist - rad * 0.25))) * exp(-r.z * 1.65) * r.w * 0.45);
+  }
+  col = mix(col, vec3(0.95, 0.99, 1.0), clamp(rip * 0.78, 0.0, 0.92));
 
   // ---------- Thuyền buồm ----------
   for (int i = 0; i < 6; i++) {

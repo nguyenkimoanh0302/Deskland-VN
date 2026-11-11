@@ -10,6 +10,8 @@ uniform vec4 uFish[6];         // x, y, hướng, pha
 uniform float uTurtN;
 uniform vec4 uTurt[4];         // x, y, hướng, pha bơi
 uniform vec4 uRip[6];
+uniform vec4 uSand[4];         // x, y, age, rot+1
+uniform vec4 uBait;            // x, y, age, alpha
 uniform float uBirdN;
 uniform vec4 uBird[8];
 out vec4 o;
@@ -247,16 +249,30 @@ void main() {
     }
     col = mix(col, col * vec3(0.62, 0.78, 0.84), shadow * 0.7);
 
-    // Gợn sóng
+    // Mồi cá lấp lánh dưới làn nước xanh ngọc
+    if (uBait.w > 0.01 && dot(p - uBait.xy, p - uBait.xy) < 1024.0) {
+      for (int m = 0; m < 8; m++) {
+        float fm = float(m);
+        float a = fm * 0.7854 + uBait.z * 0.65;
+        float r = (4.0 + 18.0 * hash(vec2(fm, 3.1))) * (0.65 + 0.35 * sin(uBait.z * 2.2 + fm));
+        vec2 bp = uBait.xy + vec2(cos(a), sin(a)) * r;
+        float crumb = (1.0 - ss(0.9, 2.3, length(p - bp))) * uBait.w;
+        col = mix(col, vec3(1.0, 0.92, 0.52), crumb * 0.88);
+      }
+    }
+
+    // Gợn sóng tương tác rõ nét
     float rip = 0.0;
     for (int i = 0; i < 6; i++) {
       vec4 r = uRip[i];
       if (r.w <= 0.0) continue;
-      float dist = length(p - r.xy), rad = r.z * 80.0;
-      rip = max(rip, (1.0 - ss(0.8, 2.0, abs(dist - rad))) * exp(-r.z * 1.4) * r.w);
-      rip = max(rip, (1.0 - ss(0.6, 1.6, abs(dist - rad * 0.6))) * exp(-r.z * 1.8) * r.w * 0.6);
+      float dist = length(p - r.xy), rad = r.z * 78.0;
+      rip = max(rip, (1.0 - ss(0.9, 2.8, abs(dist - rad))) * exp(-r.z * 1.15) * r.w);
+      rip = max(rip, (1.0 - ss(0.8, 2.2, abs(dist - rad * 0.58))) * exp(-r.z * 1.35) * r.w * 0.72);
+      rip = max(rip, (1.0 - ss(0.7, 1.8, abs(dist - rad * 0.26))) * exp(-r.z * 1.65) * r.w * 0.45);
     }
-    col = mix(col, FOAM, step(g2, rip * 0.95));
+    col = mix(col, FOAM, clamp(rip * 0.75, 0.0, 0.92));
+    col = mix(col, FOAM, step(g2, rip * 0.85) * 0.55);
 
     // Sóng biển
     float dd = s - 2.0;
@@ -276,6 +292,21 @@ void main() {
     float wet = ss(-7.0 - 3.0 * shoreE, 1.0, s) * 0.2;
     col = mix(sandRamp((g1 - 0.5) * 0.1 * gAmt), WETSAND, wet * 3.0);
     col *= 1.0 - 0.03 * ss(0.4, 0.8, N(p, 900.0).r) * (1.0 - wet);
+    // Vỏ sò hồng trắng / sao biển khi click lên bãi cát Maldives
+    for (int i = 0; i < 4; i++) {
+      vec4 sm = uSand[i];
+      if (sm.w <= 0.0) continue;
+      vec2 sq = rot(sm.w) * (p - sm.xy);
+      float sr = length(sq);
+      if (sr < 18.0) {
+        float fade = (1.0 - ss(3.0, 4.8, sm.z)) * ss(0.0, 0.18, sm.z);
+        float sa = atan(sq.y, sq.x);
+        float starR = 6.0 + 3.0 * cos(sa * 5.0);
+        col = mix(col, WETSAND * 0.88, (1.0 - ss(starR, starR + 3.0, sr)) * 0.42 * fade);
+        vec3 shCol = mix(vec3(0.98, 0.52, 0.44), vec3(1.0, 0.90, 0.82), 1.0 - sr / max(starR, 1.0));
+        col = mix(col, shCol, (1.0 - ss(starR - 0.8, starR + 0.6, sr)) * 0.92 * fade);
+      }
+    }
   }
 
   // Lớp nước mỏng tràn lên bãi cát

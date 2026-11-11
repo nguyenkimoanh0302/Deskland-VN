@@ -10,6 +10,8 @@
     "langAutoWith": "System default ({name})",
     "autostart": "Start with Windows",
     "autostartTitle": "Run Deskland automatically when you sign in",
+    "interactions": "Desktop click",
+    "interactionsTitle": "Left-click empty space on your desktop to interact with the scene",
     "autostartBlocked": "Start with Windows may have been blocked",
     "autostartWarnSw": "Deskland didn't start automatically this time — {sw} may have blocked it. Open {sw}, find Deskland in its startup manager and set it to Allow.",
     "autostartWarnGeneric": "Deskland didn't start automatically this time — your security software or the Windows Startup apps setting may have blocked it. Turn Deskland on in your security software's startup manager, or in Windows Settings → Apps → Startup.",

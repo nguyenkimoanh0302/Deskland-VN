@@ -2,9 +2,10 @@
 precision highp float;
 uniform sampler2D uNoise, uFA, uFB;
 uniform vec2 uRes, uGrid;
-uniform float uScale, uSeed, uStep, uMix, uTime, uBloom, uPetals, uWind, uMist, uDebug;
+uniform float uScale, uSeed, uStep, uMix, uTime, uBloom, uPetals, uWind, uMist, uShake, uDebug;
 uniform vec4 uBird[8];
 uniform float uBirdN;
+uniform vec4 uBurst[6];
 out vec4 o;
 
 // Bảng màu cỏ non mùa xuân cao nguyên
@@ -81,7 +82,8 @@ vec4 plumLayer(vec2 p, float G, float seedOff, float sDist, float minS, float t,
     if (h > uBloom * 0.92) continue;
     vec2 baseCtr = (c + 0.22 + 0.56 * vec2(hash2(c + seedOff + 1.3), hash2(c + seedOff + 2.7))) * G;
     float swPhase = t * (1.2 + 0.4 * h) + baseCtr.x * 0.011 + baseCtr.y * 0.009;
-    vec2 ctr = baseCtr + vec2(sin(swPhase), cos(swPhase * 0.8)) * (2.4 * uWind);
+    float rustle = sin(t * 16.0 + baseCtr.x * 0.06 + baseCtr.y * 0.05) * 3.6 * uShake;
+    vec2 ctr = baseCtr + vec2(sin(swPhase), cos(swPhase * 0.8)) * (2.4 * uWind) + vec2(rustle, -rustle * 0.65);
     vec2 dp = p - ctr;
     float rad = G * (0.42 + 0.18 * hash2(c + seedOff + 6.1)) * (1.0 + nLobe);
     float d = length(dp) - rad;
@@ -209,6 +211,61 @@ void main() {
     float p2 = floatingPetals(p + vec2(43.0, 29.0), t * 0.85, uPetals * 0.8, 0.76);
     float pMask = max(p1, p2 * 0.85);
     col = mix(col, vec3(1.0, 0.99, 0.98), pMask * 0.92);
+  }
+
+  // ---------- Chùm hoa mận 5 cánh & cánh hoa bung xoáy khi tương tác click ----------
+  for (int bi = 0; bi < 6; bi++) {
+    vec4 b = uBurst[bi];
+    if (b.w <= 0.0) continue;
+    float age = b.z;
+    // Vòng gió xuân lan toả nhẹ khi vừa chạm cành
+    if (age < 1.1) {
+      float wr = 8.0 + age * 68.0;
+      float wRing = (1.0 - ss(0.8, 3.0, abs(length(p - b.xy) - wr))) * (1.0 - age / 1.1);
+      col = mix(col, vec3(1.0, 0.98, 0.92), wRing * 0.48);
+    }
+    vec2 drift = vec2((28.0 + 18.0 * uWind) * age, 13.0 * age);
+    vec2 bCenter = b.xy + drift;
+    if (dot(p - bCenter, p - bCenter) > 225.0 * 225.0) continue;
+    float alpha = ss(0.0, 0.10, age) * (1.0 - ss(3.2, 4.5, age));
+    float ease = 1.0 - exp(-age * 2.2);
+    for (int k = 0; k < 16; k++) {
+      float fk = float(k);
+      float h1 = hash2(vec2(fk * 4.3, b.w * 37.1));
+      float h2 = hash2(vec2(fk * 8.7 + 2.1, b.w * 23.9));
+      float ang = fk * 0.3927 + (h1 - 0.5) * 0.35 + age * (0.55 + 0.35 * h2);
+      float rad = (14.0 + 58.0 * h2) * ease + age * (8.0 + 10.0 * h1);
+      vec2 pos = b.xy + drift + vec2(cos(ang), sin(ang) * 0.82) * rad;
+      pos.y += sin(age * 2.6 + h1 * 6.28) * 6.0;
+      vec2 dq = p - pos;
+      if (dot(dq, dq) > 144.0) continue;
+      if (k < 6) {
+        // Bông hoa mận 5 cánh trắng tinh khôi kèm bóng đổ & nhụy vàng hồng
+        vec2 shQ = dq - vec2(2.6, 3.4);
+        col = mix(col, HILL_DEEP * 0.72, (1.0 - ss(3.5, 7.5, length(shQ))) * 0.42 * alpha);
+        vec2 rq = rot(age * (1.8 + h1) + h2 * 6.28) * dq;
+        float r = length(rq);
+        float a5 = atan(rq.y, rq.x);
+        float fRad = (5.4 + 2.2 * cos(a5 * 5.0)) * (0.88 + 0.22 * h1);
+        float rim = (1.0 - ss(fRad - 0.2, fRad + 1.1, r)) * alpha;
+        col = mix(col, vec3(0.58, 0.68, 0.62), rim * 0.55);
+        float flw = 1.0 - ss(fRad - 0.65, fRad + 0.55, r);
+        if (flw > 0.001) {
+          vec3 fCol = mix(vec3(1.0, 1.0, 0.99), PLUM_BLUSH, ss(3.8, 0.6, r) * 0.65);
+          fCol = mix(fCol, vec3(0.96, 0.74, 0.22), 1.0 - ss(0.8, 2.2, r));
+          col = mix(col, fCol, flw * alpha * 0.98);
+        }
+      } else {
+        // Cánh hoa mận trắng chao liệng có bóng nhẹ
+        col = mix(col, HILL_DEEP * 0.75, (1.0 - ss(2.0, 5.5, length(dq - vec2(2.0, 2.8)))) * 0.34 * alpha);
+        vec2 rq = rot(age * (2.6 + h2 * 1.8) + h1 * 6.28) * dq;
+        float squeeze = 0.55 + 0.45 * abs(cos(age * 2.4 + fk));
+        float pd = length(rq / vec2(5.2, 3.2 * squeeze)) - 1.0;
+        float pm = 1.0 - ss(-0.15, 0.35, pd * 2.0);
+        vec3 pCol = h1 > 0.55 ? PLUM_BLUSH : vec3(1.0, 1.0, 0.99);
+        col = mix(col, pCol, pm * alpha * 0.96);
+      }
+    }
   }
 
   col *= 1.0 + (g2 - 0.5) * 0.028;

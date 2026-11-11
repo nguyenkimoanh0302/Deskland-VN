@@ -11,6 +11,7 @@ uniform vec2 uCGrid;
 uniform float uCellG;
 uniform float uBirdN;
 uniform vec4 uBird[8];
+uniform vec4 uMeteor[4];     // Sao bang: x, y, age, angle
 out vec4 o;
 
 const int CIRC_K = 36;
@@ -112,6 +113,38 @@ void main() {
     float glow = exp(-max(md1, 0.0) / 55.0) * 0.25;
     col += vec3(0.55, 0.68, 0.95) * glow * isNight;
     col = mix(col, vec3(1.0, 0.97, 0.84), ss(1.0, -1.0, crescent) * isNight);
+  }
+
+  // Sao băng ban đêm khi tương tác click
+  for (int i = 0; i < 4; i++) {
+    vec4 m = uMeteor[i];
+    if (m.w <= 0.01) continue;
+    float age = m.z;
+    vec2 dir = vec2(cos(m.w), sin(m.w));
+    vec2 head = m.xy + dir * (age * 460.0);
+    vec2 rel = p - head;
+    if (dot(rel, rel) > 175.0 * 175.0) continue;
+    float tLen = 155.0 * ss(0.0, 0.16, age) * (1.0 - ss(0.95, 1.4, age));
+    float fade = ss(0.0, 0.06, age) * (1.0 - ss(0.88, 1.4, age));
+    float along = -dot(rel, dir);
+    float perp = abs(dot(rel, vec2(-dir.y, dir.x)));
+    float streak = 0.0;
+    float glow = 0.0;
+    if (along >= 0.0 && along <= tLen) {
+      float u = along / max(tLen, 1.0);
+      float w = mix(1.9, 0.25, u);
+      streak = (1.0 - ss(0.0, w, perp)) * pow(1.0 - u, 1.45);
+      glow = exp(-perp / 6.0) * pow(1.0 - u, 1.9) * 0.45;
+    }
+    float hd = length(rel);
+    float headDot = 1.0 - ss(0.9, 3.4, hd);
+    float cross = max(
+      (1.0 - ss(0.0, 1.0, abs(rel.x))) * (1.0 - ss(0.0, 10.5, abs(rel.y))),
+      (1.0 - ss(0.0, 1.0, abs(rel.y))) * (1.0 - ss(0.0, 10.5, abs(rel.x)))
+    ) * 0.85;
+    glow += exp(-hd / 12.0) * 0.35;
+    col += vec3(0.55, 0.82, 1.0) * glow * fade;
+    col = mix(col, vec3(0.96, 0.99, 1.0), clamp(streak + headDot + cross, 0.0, 1.0) * fade);
   }
 
   // Máy bay và vệt khói trắng
