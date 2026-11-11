@@ -9,3 +9,7 @@
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Báo cáo nội bộ (không đưa lên kho công khai)
+/REPORT.md
+/RUST-PORT-REPORT.md
