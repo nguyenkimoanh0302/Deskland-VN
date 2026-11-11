@@ -1,6 +1,6 @@
 # deskland-rs — Phiên bản Rust Native (Win32 + OpenGL 3.3)
 
-Phiên bản viết lại hoàn toàn bằng **Rust thuần (1 tiến trình duy nhất, Win32 + OpenGL 3.3 qua WGL)** của Deskland, thay thế kiến trúc đa tiến trình C# + WebView2 thường trực để tối ưu triệt để RAM/CPU, bổ sung **tương tác chuột trực tiếp trên màn hình nền**, nâng tổng số chủ đề lên **12 chủ đề** và chuyển sang cơ chế **màn hình khóa thật 100% của Windows**.
+Phiên bản viết lại hoàn toàn bằng **Rust thuần (1 tiến trình duy nhất, Win32 + OpenGL 3.3 qua WGL)** của Deskland, thay thế kiến trúc đa tiến trình C# + WebView2 thường trực để tối ưu triệt để RAM/CPU, bổ sung **tương tác chuột trực tiếp trên màn hình nền**, nâng tổng số chủ đề lên **14 chủ đề** và chuyển sang cơ chế **màn hình khóa thật 100% của Windows**.
 
 ---
 
@@ -9,7 +9,7 @@ Phiên bản viết lại hoàn toàn bằng **Rust thuần (1 tiến trình duy
 1. **Siêu nhẹ — 1 tiến trình duy nhất (`deskland-rs.exe` ~2 MB):**
    - Không nuôi trình duyệt ngầm khi chạy hình nền: chỉ **1 tiến trình** (~65–98 MB Private RAM tùy độ phân giải & số màn hình), giảm **~6–8 lần RAM** so với bản C# + WebView2 (~11 tiến trình, ~620–790 MB RAM).
    - Một ngữ cảnh OpenGL 3.3 dùng chung cho mọi màn hình; biên dịch shader & khởi tạo khung hình đầu tiên chỉ mất **~350–480 ms**.
-2. **Đầy đủ 12 chủ đề thích ứng biểu tượng + Tương tác Click chuột riêng biệt:**
+2. **Đầy đủ 14 chủ đề thích ứng biểu tượng + Tương tác Click chuột riêng biệt:**
    - Tự động đọc vị trí biểu tượng màn hình nền (`SysListView32`), dựng trường khoảng cách (SDF) trên CPU và uốn lượn bờ biển, đồng cỏ, rạn cát, tán rừng, hàng rào sân vận động... ôm quanh các nhóm icon theo thời gian thực.
    - Mỗi chủ đề đều có phản hồi vật lý / hoạt ảnh riêng khi người dùng click chuột trái vào vùng trống trên màn hình nền.
 3. **Bắt chuột thông minh & Adaptive FPS (`20 -> 50 FPS`):**
@@ -30,7 +30,7 @@ Phiên bản viết lại hoàn toàn bằng **Rust thuần (1 tiến trình duy
 
 ---
 
-## Danh sách 12 Chủ đề & Cơ chế Tương tác Chuột
+## Danh sách 14 Chủ đề & Cơ chế Tương tác Chuột
 
 | # | Mã (`--theme`) | Bí danh (Alias) | Tên hiển thị | Mô tả cảnh & Tương tác khi Click vùng trống Desktop |
 |---:|---|---|---|---|
@@ -46,6 +46,8 @@ Phiên bản viết lại hoàn toàn bằng **Rust thuần (1 tiến trình duy
 | 10 | `cat-hill` | `cat_hill` | **Đồi mèo nắng ấm** | Đồi cỏ nắng ấm với những chú mèo mập đi dạo, ngồi liếm lông và nằm ngủ thở đều. **Click:** Bấm trúng mèo để **vuốt ve** (mèo nảy lên vui vẻ); bấm lên thảm cỏ để thả **bướm vàng** thu hút mèo chạy theo vờn. |
 | 11 | `stadium` | `football`, `soccer`, `pitch` | **Sân bóng sôi động** *(Mới)* | Sân vận động bóng đá nhìn từ trên cao (Ban ngày / Hoàng hôn / Đèn pha ban đêm), hai đội Đỏ – Xanh chạy chỗ chuyền bóng quanh chướng ngại icon. **Click:** Bấm trên sân để chuyền/lăn bóng tới vị trí đó cho cầu thủ bứt tốc đuổi theo; bấm vào khung thành để sút ghi bàn kèm hiệu ứng pháo sáng ăn mừng. |
 | 12 | `aquarium` | `fish`, `fishing`, `goldfish`, `fishbowl` | **Bể cá vàng** *(Mới)* | Góc nhìn ngang qua bể kính ngập nắng với rạn cát vàng ươm uốn ôm biểu tượng, rong rêu đung đưa, bọt khí và đàn cá vàng tung tăng. **Click:** Bấm vùng nước để thả dây câu cá vàng (canh lúc phao giật mạnh hiện dấu `!` rồi click để kéo cá lên); bấm vào rạn cát để tung làn bụi cát lấp lánh. |
+| 13 | `commute` | `bus`, `evening-bus`, `commute-bus` | **Chuyến xe chiều** *(Mới)* | Phong cảnh hoạt hình ven sông theo giờ thực, cầu vòm, phố lên đèn và xe buýt vàng chạy qua đồng lau. **Click:** Bấm mặt đường gọi xe dừng đón, bấm lên trời gọi chim / sao băng, bấm đồng cỏ tạo luồng gió thổi rạp lau. |
+| 14 | `summer-porch` | `porch`, `corgi`, `corgi-porch`, `veranda` | **Hiên nhà ngày hạ** *(Mới)* | Hiên gỗ mái ngói âm dương kiểu Ghibli, đàn Corgi ngủ trưa lăn mình trước quạt bàn cổ điển, đĩa dưa hấu đỏ, sách mở và luống vườn xanh ôm quanh icon. **Click:** Bấm Corgi để gãi bụng bắn tim hồng, bấm quạt bàn đổi nấc gió, gõ chuông gió đồng, cắn dưa hấu hoặc thả bướm / đom đóm trên sân. |
 
 > **Bật / tắt tương tác chuột:** Có thể bật hoặc tắt bất kỳ lúc nào ngay tại menu chuột phải ở khay hệ thống (**Tương tác chuột trên màn hình nền**) hoặc trong cửa sổ **Cài đặt**.
 

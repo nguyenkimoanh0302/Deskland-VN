@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deskland · Hiên nhà ngày hạ</title>
+<!--
+  Deskland · Chủ đề Hiên nhà ngày hạ (màu nước / Ghibli; WebGL2 2D)
+  - Hiên gỗ mái ngói âm dương, đàn Corgi mập ngủ trưa lăn mình trước quạt bàn cổ điển quay đầu
+  - Đĩa dưa hấu đỏ, sách mở lật trang theo gió, chuông gió đồng, chim xanh nhỏ, phơi khăn trắng
+  - Biểu tượng Desktop tự động được ôm bởi các luống vườn xanh nở hoa vàng (hoặc chiếu cói trên hiên)
+  - Tương tác click: gãi bụng Corgi lăn mình bắn tim, bật/đổi tốc độ quạt, gõ chuông gió, cắn dưa hấu, thả bướm/đom đóm
+  Shader dùng chung với bản Rust: summer-porch.frag
+-->
+<style>
+  :root { --taskbar: 48px; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #9bc866; }
+  #art { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; cursor: pointer; }
+  #ghosts { position: fixed; inset: 0; pointer-events: none; display: none; }
+  body.preview #ghosts, body.demo #ghosts { display: block; }
+  .ghost { position: absolute; }
+  .ghost i { position: absolute; left: 50%; top: 4px; width: 48px; height: 48px; margin-left: -24px; border-radius: 9px;
+    background: rgba(255,255,255,.88); box-shadow: 3px 6px 8px rgba(38,52,20,.28); }
+  .ghost b { position: absolute; left: 14%; right: 14%; top: 60px; height: 10px; border-radius: 5px; background: rgba(255,255,255,.8); }
+  #hud { position: fixed; right: 14px; top: 14px; color: #fffdf5; font: 600 13px "Segoe UI", system-ui, sans-serif;
+    background: rgba(52,36,24,.45); padding: 6px 12px; border-radius: 999px;
+    text-shadow: 0 1px 2px rgba(0,0,0,.45); pointer-events: none; display: none; }
+  body.demo #hud { display: block; }
+</style>
+</head>
+<body>
+<canvas id="art"></canvas>
+<div id="hud">🐶 Chạm Corgi để gãi bụng · Quạt bàn · Chuông gió · Dưa hấu</div>
+<script>
+'use strict';
+const TASKBAR = 48, STEP = 5, MORPH_MS = 1800;
+const QS = new URLSearchParams(location.search);
+const WALL = QS.has('wallpaper'), PREVIEW = QS.has('preview'), DEMO = !WALL && !PREVIEW;
+
+// Giá trị mặc định khớp themes.json & summer_porch.rs
+const DEFAULTS = { corgis: 3, fanSpeed: 1, timeOfDay: 0, sunbeams: 0.7, sigma: 78, warp: 28 };
+const P = Object.assign({}, DEFAULTS);
+
+/* ---------------- Nhiễu CPU + texture nhiễu (giống aquarium.html / engine.rs) ---------------- */
+let seed = (Math.random() * 1e6) | 0;
+function hash2(x, y, k = 0) {
+  let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(seed + k, 2246822519);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+function vnoise(x, y, k = 0) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  const a = hash2(ix, iy, k), b = hash2(ix + 1, iy, k), c = hash2(ix, iy + 1, k), d = hash2(ix + 1, iy + 1, k);
+  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+}
+function fbm(x, y, k = 0) {
+  let a = 0.5, s = 0;
+  for (let i = 0; i < 4; i++) { s += a * vnoise(x, y, k + i * 7); x = x * 2.03 + 17.1; y = y * 2.03 + 17.1; a *= 0.5; }
+  return s;
+}
+function tileNoise(x, y, px, py, k) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  const m = (v, p) => ((v % p) + p) % p;
+  const x0 = m(ix, px), x1 = m(ix + 1, px), y0 = m(iy, py), y1 = m(iy + 1, py);
+  const a = hash2(x0, y0, k), b = hash2(x1, y0, k), c = hash2(x0, y1, k), d = hash2(x1, y1, k);
+  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+}
+function tileFbm(u, v, periods, k) {
+  let s = 0, w = 0.5, tw = 0;
+  for (let i = 0; i < periods.length; i++) { s += w * tileNoise(u * periods[i], v * periods[i], periods[i], periods[i], k + i * 13); tw += w; w *= 0.5; }
+  return s / tw;
+}
+function makeNoiseImage() {
+  const S = 256, d = new Uint8Array(S * S * 4);
+  const chans = [[8, 16, 32, 64], [8, 16, 32, 64], [8, 16, 32], [16, 32, 64, 128]];
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const u = x / S, v = y / S, i = (y * S + x) * 4;
+    for (let c = 0; c < 4; c++) d[i + c] = Math.min(Math.max((tileFbm(u, v, chans[c], 100 + c * 50) - 0.5) * 1.9 + 0.5, 0), 1) * 255;
+  }
+  return { S, d };
+}
+
+/* ---------------- Trường khoảng cách quanh biểu tượng (luống vườn / chiếu cói) ---------------- */
+let W = innerWidth, H = innerHeight, Gw = 1, Gh = 1, NZ = null;
+function buildNoise() {
+  const N = Gw * Gh;
+  NZ = { wx: new Float32Array(N), wy: new Float32Array(N) };
+  for (let gy = 0; gy < Gh; gy++) for (let gx = 0; gx < Gw; gx++) {
+    const i = gy * Gw + gx, x = gx * STEP, y = gy * STEP;
+    NZ.wx[i] = fbm(x * 0.0028, y * 0.0028, 1) - 0.47;
+    NZ.wy[i] = fbm(x * 0.0028, y * 0.0028, 2) - 0.47;
+  }
+}
+function computeField(rects) {
+  const N = Gw * Gh, f1 = new Float32Array(N);
+  const sig = P.sigma, is1 = 1 / (sig * sig), wa = P.warp * 2.2, wmax = wa * 0.5;
+  for (const r of rects) {
+    const R = 5.5 * sig + Math.max(r.hw, r.hh) * 0.5 + wmax;
+    const gx0 = Math.max(0, Math.floor((r.cx - R) / STEP)), gx1 = Math.min(Gw - 1, Math.ceil((r.cx + R) / STEP));
+    const gy0 = Math.max(0, Math.floor((r.cy - R) / STEP)), gy1 = Math.min(Gh - 1, Math.ceil((r.cy + R) / STEP));
+    const chw = r.hw * 0.5, chh = r.hh * 0.5;
+    for (let gy = gy0; gy <= gy1; gy++) for (let gx = gx0; gx <= gx1; gx++) {
+      const i = gy * Gw + gx;
+      const qx = gx * STEP + NZ.wx[i] * wa, qy = gy * STEP + NZ.wy[i] * wa;
+      let dx = Math.abs(qx - r.cx) - chw, dy = Math.abs(qy - r.cy) - chh;
+      if (dx < 0) dx = 0; if (dy < 0) dy = 0;
+      f1[i] += Math.exp(-(dx * dx + dy * dy) * is1);
+    }
+  }
+  const c0 = Math.sqrt(-Math.log(0.35)), s = new Float32Array(N), fMin = Math.exp(-30);
+  for (let i = 0; i < N; i++) {
+    const g = Math.log(Math.max(f1[i], fMin));
+    s[i] = sig * (Math.sqrt(Math.max(-g, 0)) - c0) - sig * 0.6 * Math.max(g, 0);
+  }
+  return s;
+}
+
+/* ---------------- WebGL2 ---------------- */
+const cv = document.getElementById('art');
+const gl = cv.getContext('webgl2', { antialias: false });
+const VS = `#version 300 es
+void main() { vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2)); gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`;
+let PR = null;
+function program(fs) {
+  const mk = (type, src) => {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { console.error(gl.getShaderInfoLog(s)); throw new Error('shader'); }
+    return s;
+  };
+  const p = gl.createProgram();
+  gl.attachShader(p, mk(gl.VERTEX_SHADER, VS)); gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p);
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const nm = gl.getActiveUniform(p, i).name.replace(/\[0\]$/, ''); U[nm] = gl.getUniformLocation(p, nm); }
+  return { p, U };
+}
+gl.bindVertexArray(gl.createVertexArray());
+let noiseTex = null;
+function buildNoiseTex() {
+  const { S, d } = makeNoiseImage();
+  if (noiseTex) gl.deleteTexture(noiseTex);
+  noiseTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, noiseTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, S, S, 0, gl.RGBA, gl.UNSIGNED_BYTE, d);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+}
+const f32 = new Float32Array(1), u32 = new Uint32Array(f32.buffer);
+function toHalf(v) {
+  f32[0] = v; const x = u32[0];
+  const sign = (x >>> 16) & 0x8000, e = ((x >>> 23) & 0xff) - 112, m = x & 0x7fffff;
+  if (e <= 0) return sign; if (e >= 31) return sign | 0x7c00;
+  return sign | (e << 10) | (m >>> 13);
+}
+const ftex = [null, null];
+let fromI = 0, toI = 0, morphT0 = -1e9, morphDur = MORPH_MS, FA = null, FB = null, curMix = 1;
+function allocField() {
+  for (let i = 0; i < 2; i++) {
+    if (ftex[i]) gl.deleteTexture(ftex[i]);
+    ftex[i] = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, ftex[i]);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, Gw, Gh, 0, gl.RED, gl.HALF_FLOAT, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  }
+}
+function uploadField(i, s) {
+  const d = new Uint16Array(Gw * Gh);
+  for (let k = 0; k < d.length; k++) d[k] = toHalf(s[k]);
+  gl.bindTexture(gl.TEXTURE_2D, ftex[i]);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, Gw, Gh, gl.RED, gl.HALF_FLOAT, d);
+}
+let icons = [];
+const iconRects = () => icons.map(ic => ({ cx: ic.x + ic.w / 2, cy: ic.y + ic.h / 2, hw: ic.w / 2 - 4, hh: ic.h / 2 - 2 }));
+function commit(fromEmpty = false) {
+  const nf = computeField(iconRects());
+  const target = 1 - toI;
+  if (fromEmpty) { FA = computeField([]); uploadField(toI, FA); } else FA = FB;
+  FB = nf; uploadField(target, FB);
+  fromI = toI; toI = target;
+  morphT0 = performance.now(); morphDur = fromEmpty ? 2600 : MORPH_MS;
+  needDraw = true;
+}
+const seedU = () => (((seed % 997) + 997) % 997) * 0.37;
+
+/* ---------------- Mô phỏng Corgi, Quạt bàn, Chuông gió, Bướm hè ---------------- */
+const rand = Math.random;
+const refScale = () => Math.min(W / 1536, H / 864);
+let corgis = [], bugs = [], fx = [];
+let fanMult = 1.0, fanOscPh = 0.4, fanBladePh = 0.0;
+let chimeAng = 0.0, chimeVel = 0.0;
+let melonBites = 0, melonRefill = 0.0, birdHop = 0.0;
+
+function resolveDayMode() {
+  const mode = Math.round(P.timeOfDay);
+  if (mode === 0 || mode === 1 || mode === 2) return mode;
+  const d = new Date(), mins = d.getHours() * 60 + d.getMinutes();
+  if (mins >= 360 && mins < 990) return 0;
+  if (mins >= 990 && mins < 1140) return 1;
+  return 2;
+}
+
+function initCorgis() {
+  const slots = [
+    [0.415, 0.508, 1.00, 0.0, 0], // Corgi trái: nằm sấp đùi gà (sploot)
+    [0.580, 0.556, 1.06, 0.0, 1], // Corgi phải: phơi bụng trắng trước quạt
+    [0.496, 0.522, 0.58, 1.0, 0], // Corgi em bé đeo nơ đỏ nằm giữa
+    [0.462, 0.592, 0.88, 2.0, 2], // Corgi tam thể nằm nghiêng mép hiên
+  ];
+  corgis = slots.map(([nx, ny, scale, coat, pose]) => ({
+    nx, ny, scale, coat, pose, nextPose: pose,
+    rollT: -1, napWait: 14 + rand() * 14,
+    breathPh: rand() * Math.PI * 2, happy: 0
+  }));
+}
+
+function syncBugs() {
+  const baseN = Math.max(1, Math.min(6, Math.round(P.sunbeams * 5)));
+  while (bugs.filter(b => b.ttl == null).length < baseN) {
+    const ang = rand() * Math.PI * 2;
+    bugs.push({
+      x: rand() * W * 0.65,
+      y: H * (0.20 + rand() * 0.68),
+      vx: Math.cos(ang) * 24,
+      vy: Math.sin(ang) * 14,
+      ph: rand() * Math.PI * 2,
+      ttl: null
+    });
+  }
+  while (bugs.filter(b => b.ttl == null).length > baseN) {
+    const idx = bugs.findIndex(b => b.ttl == null);
+    if (idx >= 0) bugs.splice(idx, 1); else break;
+  }
+}
+
+function effFanSpeed() { return Math.max(0, Math.min(2.4, P.fanSpeed * fanMult)); }
+function pushFx(x, y, kind) { if (fx.length >= 6) fx.shift(); fx.push({ x, y, age: 0, kind }); }
+
+function stepWorld(dt) {
+  const fanSpd = effFanSpeed();
+  if (fanSpd > 0.02) {
+    fanOscPh = (fanOscPh + dt * (0.55 + 0.25 * fanSpd)) % (Math.PI * 2);
+    fanBladePh = (fanBladePh + dt * (12.0 + 16.0 * fanSpd)) % (Math.PI * 2);
+  }
+
+  const windTarget = Math.sin(fanOscPh * 0.7) * (0.05 + 0.04 * fanSpd);
+  const spring = (windTarget - chimeAng) * 14.0 - chimeVel * 2.6;
+  chimeVel += spring * dt;
+  chimeAng = Math.max(-0.65, Math.min(0.65, chimeAng + chimeVel * dt));
+
+  if (birdHop > 0) {
+    birdHop += dt * 2.4;
+    if (birdHop >= 1) birdHop = 0;
+  }
+  if (melonBites > 0) {
+    melonRefill -= dt;
+    if (melonRefill <= 0) melonBites = 0;
+  }
+
+  const activeN = Math.max(1, Math.min(4, Math.round(P.corgis)));
+  for (let i = 0; i < activeN; i++) {
+    const c = corgis[i];
+    c.breathPh = (c.breathPh + dt * 1.85) % (Math.PI * 2);
+    c.happy = Math.max(0, c.happy - dt * 0.75);
+    if (c.rollT >= 0) {
+      const prev = c.rollT;
+      c.rollT += dt * 1.85;
+      if (prev < 0.5 && c.rollT >= 0.5) c.pose = c.nextPose;
+      if (c.rollT >= 1) c.rollT = -1;
+    } else {
+      c.napWait -= dt;
+      if (c.napWait <= 0) {
+        c.nextPose = rand() < 0.55 ? (c.pose + 1) % 3 : (c.pose + 2) % 3;
+        c.rollT = 0;
+        c.napWait = 16 + rand() * 18;
+      }
+    }
+  }
+
+  for (let i = bugs.length - 1; i >= 0; i--) {
+    const b = bugs[i];
+    b.ph = (b.ph + dt * 11.5) % (Math.PI * 2);
+    b.vx = Math.max(-52, Math.min(52, b.vx + (rand() - 0.5) * 90 * dt));
+    b.vy = Math.max(-36, Math.min(36, b.vy + (rand() - 0.5) * 70 * dt));
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    if (b.x < 16) b.vx = Math.abs(b.vx);
+    else if (b.x > W * 0.72) b.vx = -Math.abs(b.vx);
+    if (b.y < H * 0.14) b.vy = Math.abs(b.vy);
+    else if (b.y > H - TASKBAR - 24) b.vy = -Math.abs(b.vy);
+    if (b.ttl != null) {
+      b.ttl -= dt;
+      if (b.ttl <= 0) bugs.splice(i, 1);
+    }
+  }
+
+  for (let i = fx.length - 1; i >= 0; i--) {
+    fx[i].age += dt;
+    if (fx[i].age >= 1.65) fx.splice(i, 1);
+  }
+}
+
+function handleClick(x, y) {
+  const s = refScale();
+  const activeN = Math.max(1, Math.min(4, Math.round(P.corgis)));
+
+  // 1. Gãi bụng Corgi -> lăn mình đổi tư thế + tim hồng
+  for (let i = 0; i < activeN; i++) {
+    const c = corgis[i];
+    const cx = c.nx * W, cy = c.ny * H;
+    if (Math.hypot(x - cx, y - cy) <= 78 * c.scale * s) {
+      c.nextPose = (c.pose + 1) % 3;
+      c.rollT = 0;
+      c.happy = 1;
+      c.napWait = 18;
+      pushFx(cx, cy - 28 * s, 0);
+      return;
+    }
+  }
+
+  // 2. Click quạt bàn -> đổi nấc gió
+  const fanCx = 0.704 * W, fanCy = 0.518 * H - 58 * s;
+  if (Math.hypot(x - fanCx, y - fanCy) <= 68 * s) {
+    fanMult = Math.abs(fanMult - 1.0) < 0.1 ? 1.8 : fanMult > 1.4 ? 0.4 : fanMult > 0.1 ? 0.0 : 1.0;
+    if (effFanSpeed() > 0.05) pushFx(fanCx - 24 * s, fanCy, 1);
+    return;
+  }
+
+  // 3. Click chuông gió đồng -> leng keng + chim xanh nhảy lên
+  const chimeCx = 0.346 * W, chimeCy = 0.095 * H + 58 * s;
+  if (Math.hypot(x - chimeCx, y - chimeCy) <= 52 * s) {
+    chimeVel = chimeAng >= 0 ? -4.2 : 4.2;
+    birdHop = 0.01;
+    pushFx(chimeCx, chimeCy, 2);
+    return;
+  }
+
+  // 4. Click đĩa dưa hấu -> cắn 1 miếng dưa mát lạnh
+  const melonCx = 0.702 * W + 32 * s, melonCy = 0.592 * H - 6 * s;
+  if (Math.hypot(x - melonCx, y - melonCy) <= 52 * s) {
+    melonBites = (melonBites + 1) % 4;
+    melonRefill = 6.5;
+    pushFx(melonCx, melonCy - 6 * s, 3);
+    return;
+  }
+
+  // 5. Click chim xanh bên mẹt rau
+  const birdCx = 0.848 * W, birdCy = 0.676 * H;
+  if (Math.hypot(x - birdCx, y - birdCy) <= 36 * s) {
+    birdHop = 0.01;
+    pushFx(birdCx, birdCy - 12 * s, 0);
+    return;
+  }
+
+  // 6. Sân nắng / vườn cây -> thả bướm hè / đom đóm
+  if (bugs.length < 10) {
+    const ang = rand() * Math.PI * 2;
+    bugs.push({
+      x, y,
+      vx: Math.cos(ang) * 34,
+      vy: -18 + Math.sin(ang) * 14,
+      ph: rand() * Math.PI * 2,
+      ttl: 9
+    });
+  }
+  pushFx(x, y, 4);
+}
+
+/* ---------------- Vòng vẽ ---------------- */
+const U4 = n => new Float32Array(n * 4);
+const corgiA = U4(4), corgiB = U4(4), bugA = U4(10), fxA = U4(6);
+const T0 = performance.now();
+let lastT = 0, paused = false, needDraw = true;
+
+function resize() {
+  W = innerWidth; H = innerHeight;
+  const scale = PREVIEW ? 0.42 : Math.min(devicePixelRatio || 1, 0.85);
+  cv.width = Math.round(W * scale); cv.height = Math.round(H * scale); cv._scale = scale;
+  Gw = Math.ceil(W / STEP) + 2; Gh = Math.ceil(H / STEP) + 2;
+  buildNoise(); allocField();
+  FA = FB = null;
+  commit(true);
+  if (!corgis.length) initCorgis();
+  syncBugs();
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (paused) {
+    lastT = 0;
+    if (needDraw) { needDraw = false; curMix = 1; draw(now); }
+    return;
+  }
+  const busy = fx.length > 0 || birdHop > 0 || Math.abs(chimeVel) > 0.35 || corgis.some(c => c.rollT >= 0 || c.happy > 0.05);
+  if (now - lastT < (busy ? 22 : 38)) return;
+  const dt = lastT ? Math.min((now - lastT) / 1000, 0.1) : 0.03;
+  lastT = now;
+  const e = Math.min((now - morphT0) / morphDur, 1);
+  curMix = e < 0.5 ? 2 * e * e : 1 - Math.pow(-2 * e + 2, 2) / 2;
+  stepWorld(dt);
+  draw(now);
+}
+
+function draw(now) {
+  if (!PR) return;
+  const { p, U } = PR;
+  gl.useProgram(p);
+  gl.viewport(0, 0, cv.width, cv.height);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, noiseTex);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, ftex[fromI]);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, ftex[toI]);
+  gl.uniform1i(U.uNoise, 0); gl.uniform1i(U.uFA, 1); gl.uniform1i(U.uFB, 2);
+  gl.uniform2f(U.uRes, cv.width / cv._scale, cv.height / cv._scale);
+  gl.uniform2f(U.uGrid, Gw, Gh);
+  gl.uniform1f(U.uScale, cv._scale);
+  gl.uniform1f(U.uSeed, seedU());
+  gl.uniform1f(U.uStep, STEP);
+  gl.uniform1f(U.uMix, curMix);
+  gl.uniform1f(U.uTime, (now - T0) / 1000);
+  gl.uniform1f(U.uDebug, 0);
+
+  gl.uniform1f(U.uDayMode, resolveDayMode());
+  gl.uniform1f(U.uSunbeams, P.sunbeams);
+  gl.uniform1f(U.uFanSpeed, effFanSpeed());
+  gl.uniform4f(U.uFanState, 0.704 * W, 0.518 * H, Math.sin(fanOscPh) * 0.85, fanBladePh);
+  gl.uniform4f(U.uProps, chimeAng, -1, melonBites, birdHop);
+
+  const activeN = Math.max(1, Math.min(4, Math.round(P.corgis)));
+  corgiA.fill(0); corgiB.fill(0);
+  for (let i = 0; i < activeN; i++) {
+    const c = corgis[i];
+    corgiA.set([c.nx * W, c.ny * H, c.pose, Math.max(0, c.rollT)], i * 4);
+    corgiB.set([c.scale, c.coat, c.breathPh, c.happy], i * 4);
+  }
+  gl.uniform1f(U.uCorgiN, activeN);
+  gl.uniform4fv(U.uCorgiA, corgiA);
+  gl.uniform4fv(U.uCorgiB, corgiB);
+
+  bugA.fill(0);
+  const bugN = Math.min(10, bugs.length);
+  for (let i = 0; i < bugN; i++) {
+    const b = bugs[i];
+    bugA.set([b.x, b.y, b.vx >= 0 ? 1 : -1, b.ph], i * 4);
+  }
+  gl.uniform1f(U.uBugN, bugN);
+  gl.uniform4fv(U.uBugs, bugA);
+
+  fxA.fill(-1);
+  fx.slice(0, 6).forEach((f, i) => fxA.set([f.x, f.y, f.age, f.kind], i * 4));
+  gl.uniform4fv(U.uFx, fxA);
+
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+/* ---------------- Điều khiển từ host / settings ---------------- */
+function applySettings(v) {
+  let field = false;
+  if (typeof v.seed === 'number' && v.seed !== seed) { seed = v.seed; buildNoiseTex(); buildNoise(); field = true; }
+  for (const k of Object.keys(DEFAULTS)) {
+    if (typeof v[k] !== 'number' || P[k] === v[k]) continue;
+    P[k] = v[k];
+    if (k === 'sigma' || k === 'warp') field = true;
+  }
+  if (field && FB) commit();
+  syncBugs();
+  needDraw = true;
+}
+function drawGhosts() {
+  const box = document.getElementById('ghosts');
+  box.innerHTML = icons.map(ic => `<div class="ghost" style="left:${ic.x}px;top:${ic.y}px;width:${ic.w}px;height:${ic.h}px"><i></i><b></b></div>`).join('');
+}
+cv.addEventListener('pointerdown', e => handleClick(e.clientX, e.clientY));
+addEventListener('resize', resize);
+
+fetch('summer-porch.frag').then(r => r.text()).then(src => {
+  PR = program(src);
+  buildNoiseTex();
+  initCorgis();
+  const g = document.createElement('div'); g.id = 'ghosts'; document.body.appendChild(g);
+  if (PREVIEW) document.body.classList.add('preview');
+  if (DEMO) {
+    document.body.classList.add('demo');
+    for (let c = 0; c < 2; c++) for (let r = 0; r < 6; r++) icons.push({ x: 8 + c * 78, y: 46 + r * 100, w: 76, h: 96 });
+  }
+  resize();
+  if (DEMO) drawGhosts();
+  let first = true;
+  const handle = m => {
+    if (m.t === 'pause') { paused = !!m.v; return; }
+    if (m.t === 'settings') { applySettings(m.v || {}); return; }
+    if (m.t === 'reset') { applySettings(Object.assign({}, DEFAULTS, m.v || {})); return; }
+    if (m.t !== 'icons') return;
+    const k = window.devicePixelRatio || 1;
+    icons = m.vis ? m.r.map(([l, t, r, b]) => ({ x: l / k, y: t / k, w: (r - l) / k, h: (b - t) / k })) : [];
+    if (PREVIEW) drawGhosts();
+    commit(first); first = false;
+  };
+  if (PREVIEW) {
+    addEventListener('message', ev => { if (ev.source === parent) handle(typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data); });
+    parent.postMessage(JSON.stringify({ t: 'ready' }), '*');
+  } else if (WALL) {
+    const host = window.chrome && window.chrome.webview;
+    if (host) { host.addEventListener('message', ev => handle(JSON.parse(ev.data))); host.postMessage('ready'); }
+  }
+  requestAnimationFrame(frame);
+});
+</script>
+</body>
+</html>
