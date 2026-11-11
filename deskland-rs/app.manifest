@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
-  <assemblyIdentity version="0.1.0.0" name="Deskland.rs" type="win32"/>
+  <assemblyIdentity version="1.0.0.0" name="DesklandVN.app" type="win32"/>
   <!-- BẮT BUỘC: cửa sổ con phân lớp (WS_EX_LAYERED + WS_CHILD, cách gắn hình nền trên 24H2+) chỉ được
        Windows vẽ ra màn hình khi ứng dụng khai báo hỗ trợ Windows 8 trở lên. Thiếu khai báo này desktop đen. -->
   <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">

@@ -179,7 +179,7 @@ pub fn open(proto: &Path) -> Result<(), String> {
         let hwnd = CreateWindowExW(
             0,
             cls.as_ptr(),
-            wide("Deskland Preview").as_ptr(),
+            wide("Deskland-VN").as_ptr(),
             WS_OVERLAPPEDWINDOW,
             ((sw - w) / 2).max(0),
             ((sh - h) / 2).max(0),

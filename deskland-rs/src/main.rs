@@ -245,7 +245,7 @@ unsafe extern "system" fn msg_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRE
                     AppendMenuW(menu, MF_STRING, CMD_WINL, wide("⚠ Bật lại Win+L của Windows (bản C# cũ đã tắt)").as_ptr());
                 }
                 AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
-                AppendMenuW(menu, MF_STRING, CMD_EXIT, wide("Thoát Deskland (Rust)").as_ptr());
+                AppendMenuW(menu, MF_STRING, CMD_EXIT, wide("Thoát Deskland-VN").as_ptr());
                 let mut pt = POINT { x: 0, y: 0 };
                 GetCursorPos(&mut pt);
                 SetForegroundWindow(h);
@@ -1181,8 +1181,8 @@ fn main() {
             unsafe {
                 MessageBoxW(
                     std::ptr::null_mut(),
-                    wide("Bật / tắt trình bảo vệ màn hình Deskland trong menu khay của Deskland.\n\nKhi quay lại, Windows sẽ hiện màn hình đăng nhập thật (khóa bằng mật khẩu / PIN / Windows Hello của Windows).").as_ptr(),
-                    wide("Deskland").as_ptr(),
+                    wide("Bật / tắt trình bảo vệ màn hình Deskland-VN trong menu khay của Deskland-VN.\n\nKhi quay lại, Windows sẽ hiện màn hình đăng nhập thật (khóa bằng mật khẩu / PIN / Windows Hello của Windows).").as_ptr(),
+                    wide("Deskland-VN").as_ptr(),
                     MB_OK | MB_ICONINFORMATION,
                 );
             }
@@ -1243,7 +1243,7 @@ fn main() {
     nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     nid.uCallbackMessage = WM_TRAY;
     nid.hIcon = unsafe { app_icon(GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON)) };
-    for (i, c) in "Deskland (Rust native)".encode_utf16().enumerate() {
+    for (i, c) in "Deskland-VN".encode_utf16().enumerate() {
         nid.szTip[i] = c;
     }
     let headless = args.iter().any(|a| a == "--headless");
@@ -1266,7 +1266,7 @@ fn main() {
             b.uFlags = NIF_INFO;
             b.dwInfoFlags = NIIF_WARNING;
             let title = "Win+L của Windows đang bị tắt";
-            let text = "Bản Deskland C# cũ đã tắt khóa Windows. Chuột phải icon Deskland > \"Bật lại Win+L của Windows\".";
+            let text = "Bản C# cũ đã tắt khóa Windows. Chuột phải icon Deskland-VN > \"Bật lại Win+L của Windows\".";
             for (i, c) in title.encode_utf16().take(63).enumerate() {
                 b.szInfoTitle[i] = c;
             }
@@ -1430,7 +1430,7 @@ fn main() {
                         lock::uninstall_saver();
                     } else if let Err(e) = lock::install_saver(app.cfg.lock_idle_mins) {
                         log!("Đặt trình bảo vệ màn hình lỗi: {e}");
-                        unsafe { MessageBoxW(settings::hwnd().unwrap_or(msg_hwnd), wide(&e).as_ptr(), wide("Deskland").as_ptr(), MB_OK | MB_ICONWARNING) };
+                        unsafe { MessageBoxW(settings::hwnd().unwrap_or(msg_hwnd), wide(&e).as_ptr(), wide("Deskland-VN").as_ptr(), MB_OK | MB_ICONWARNING) };
                     }
                 }
                 Action::Idle(m) => {
@@ -1538,7 +1538,7 @@ fn main() {
                             app.cfg.lock_idle_mins = mins;
                             if let Err(e) = lock::install_saver(mins) {
                                 log!("Đặt trình bảo vệ màn hình lỗi: {e}");
-                                unsafe { MessageBoxW(msg_hwnd, wide(&e).as_ptr(), wide("Deskland").as_ptr(), MB_OK | MB_ICONWARNING) };
+                                unsafe { MessageBoxW(msg_hwnd, wide(&e).as_ptr(), wide("Deskland-VN").as_ptr(), MB_OK | MB_ICONWARNING) };
                                 web::post(&web_init(&app).to_string());
                             }
                         }
@@ -1589,7 +1589,7 @@ fn main() {
                         lock::uninstall_saver();
                     } else if let Err(e) = lock::install_saver(app.cfg.lock_idle_mins) {
                         log!("Đặt trình bảo vệ màn hình lỗi: {e}");
-                        unsafe { MessageBoxW(msg_hwnd, wide(&e).as_ptr(), wide("Deskland").as_ptr(), MB_OK | MB_ICONWARNING) };
+                        unsafe { MessageBoxW(msg_hwnd, wide(&e).as_ptr(), wide("Deskland-VN").as_ptr(), MB_OK | MB_ICONWARNING) };
                     }
                 }
                 CMD_SYNC => {
@@ -1613,14 +1613,14 @@ fn main() {
                 CMD_SAVER_NOW => {
                     let mut ready = lock::saver_installed() && lock::saver_secure();
                     if !ready {
-                        let q = "\"Khóa với cảnh động\" dùng trình bảo vệ màn hình của Windows, có bật \"khi quay lại, hiện màn hình đăng nhập\".\n\nĐặt Deskland làm trình bảo vệ màn hình (có khóa) ngay bây giờ?";
-                        let r = unsafe { MessageBoxW(msg_hwnd, wide(q).as_ptr(), wide("Deskland").as_ptr(), MB_YESNO | MB_ICONQUESTION) };
+                        let q = "\"Khóa với cảnh động\" dùng trình bảo vệ màn hình của Windows, có bật \"khi quay lại, hiện màn hình đăng nhập\".\n\nĐặt Deskland-VN làm trình bảo vệ màn hình (có khóa) ngay bây giờ?";
+                        let r = unsafe { MessageBoxW(msg_hwnd, wide(q).as_ptr(), wide("Deskland-VN").as_ptr(), MB_YESNO | MB_ICONQUESTION) };
                         if r == IDYES {
                             match lock::install_saver(app.cfg.lock_idle_mins) {
                                 Ok(()) => ready = true,
                                 Err(e) => {
                                     log!("Đặt trình bảo vệ màn hình lỗi: {e}");
-                                    unsafe { MessageBoxW(msg_hwnd, wide(&e).as_ptr(), wide("Deskland").as_ptr(), MB_OK | MB_ICONWARNING) };
+                                    unsafe { MessageBoxW(msg_hwnd, wide(&e).as_ptr(), wide("Deskland-VN").as_ptr(), MB_OK | MB_ICONWARNING) };
                                 }
                             }
                         }

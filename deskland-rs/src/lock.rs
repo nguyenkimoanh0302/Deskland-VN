@@ -75,14 +75,20 @@ pub fn restore_winl() -> bool {
     ok
 }
 
+/// Tên tệp hiện trong danh sách trình bảo vệ màn hình của Windows
 fn saver_path() -> std::path::PathBuf {
+    data_dir().join("Deskland-VN.scr")
+}
+
+/// Tên cũ (trước bản 1.0.0) - vẫn nhận là của mình để bật / gỡ đúng
+fn saver_path_old() -> std::path::PathBuf {
     data_dir().join("Deskland.scr")
 }
 
 /// Trình bảo vệ màn hình hiện tại có phải của Deskland Rust không.
 pub fn saver_installed() -> bool {
     let cur = reg_get_string(HKEY_CURRENT_USER, DESKTOP_KEY, "SCRNSAVE.EXE").unwrap_or_default();
-    !cur.is_empty() && cur.eq_ignore_ascii_case(&saver_path().to_string_lossy())
+    !cur.is_empty() && (cur.eq_ignore_ascii_case(&saver_path().to_string_lossy()) || cur.eq_ignore_ascii_case(&saver_path_old().to_string_lossy()))
 }
 
 /// Đặt Deskland làm trình bảo vệ màn hình, BẮT BUỘC kèm "khi tiếp tục, hiện màn hình đăng nhập".
@@ -155,7 +161,7 @@ pub fn uninstall_saver() {
     if saver_installed() {
         reg_set_string(HKEY_CURRENT_USER, DESKTOP_KEY, "SCRNSAVE.EXE", "");
         unsafe { SystemParametersInfoW(SPI_SETSCREENSAVEACTIVE, 0, std::ptr::null_mut(), SPIF_SENDCHANGE) };
-        crate::log!("Đã gỡ trình bảo vệ màn hình Deskland");
+        crate::log!("Đã gỡ trình bảo vệ màn hình Deskland-VN");
     }
 }
 

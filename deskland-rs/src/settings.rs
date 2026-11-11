@@ -380,7 +380,7 @@ pub fn open(state: &State) {
         let hwnd = CreateWindowExW(
             0,
             cls.as_ptr(),
-            wide("Deskland (Rust) - Cài đặt").as_ptr(),
+            wide("Deskland-VN - Cài đặt").as_ptr(),
             style,
             (sw - w) / 2,
             (sh - h) / 2,
