@@ -168,7 +168,8 @@ pub fn open(proto: &Path) -> Result<(), String> {
         wc.lpfnWndProc = Some(proc_);
         wc.hInstance = GetModuleHandleW(std::ptr::null());
         wc.hCursor = LoadCursorW(std::ptr::null_mut(), IDC_ARROW);
-        wc.hIcon = LoadIconW(std::ptr::null_mut(), IDI_APPLICATION);
+        wc.hIcon = crate::app_icon(GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON));
+        wc.hIconSm = crate::app_icon(GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON));
         wc.lpszClassName = cls.as_ptr();
         RegisterClassExW(&wc);
 

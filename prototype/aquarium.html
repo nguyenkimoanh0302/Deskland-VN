@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deskland · Bể cá vàng</title>
+<!--
+  Deskland · Chủ đề Bể cá vàng (nhìn ngang qua thành kính; WebGL2 2D)
+  - Biểu tượng nằm trên rạn cát vàng; rong xanh mọc trên mép rạn và đáy bể, bong bóng nổi lên
+  - Cá vàng bơi tự do, né rạn cát / mặt nước / đáy bể
+  - Câu cá: bấm vào nước để thả câu -> cá tới rỉa mồi -> phao giật mạnh + dấu "!" -> bấm ngay để kéo cá lên.
+    Bấm sớm / trễ thì cá chạy mất. Bấm vào cát: tung bụi cát. Bấm chỗ khác khi đang thả câu: thả lại.
+  Shader dùng chung với bản Rust: aquarium.frag
+-->
+<style>
+  :root { --taskbar: 48px; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #154f86; }
+  #art { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; cursor: crosshair; }
+  #ghosts { position: fixed; inset: 0; pointer-events: none; display: none; }
+  body.preview #ghosts, body.demo #ghosts { display: block; }
+  .ghost { position: absolute; }
+  .ghost i { position: absolute; left: 50%; top: 4px; width: 48px; height: 48px; margin-left: -24px; border-radius: 9px;
+    background: rgba(255,255,255,.88); box-shadow: 3px 6px 8px rgba(10,40,70,.32); }
+  .ghost b { position: absolute; left: 14%; right: 14%; top: 60px; height: 10px; border-radius: 5px; background: rgba(255,255,255,.78); }
+  #hud { position: fixed; right: 14px; top: 40px; color: #fff; font: 600 13px "Segoe UI", system-ui, sans-serif;
+    text-shadow: 0 1px 3px rgba(0,0,0,.5); pointer-events: none; display: none; }
+  body.demo #hud { display: block; }
+</style>
+</head>
+<body>
+<canvas id="art"></canvas>
+<div id="hud"></div>
+<script>
+'use strict';
+const TASKBAR = 48, STEP = 5, MORPH_MS = 1800, SURF = 30;
+const QS = new URLSearchParams(location.search);
+const WALL = QS.has('wallpaper'), PREVIEW = QS.has('preview'), DEMO = !WALL && !PREVIEW;
+
+// Giá trị mặc định khớp themes.json
+const DEFAULTS = { sigma: 80, warp: 30, fish: 4, plants: 0.6, bubbles: 0.5, light: 0.6, eager: 1 };
+const P = Object.assign({}, DEFAULTS);
+
+/* ---------------- Nhiễu CPU + texture nhiễu (giống meadow.html / engine.rs) ---------------- */
+let seed = (Math.random() * 1e6) | 0;
+function hash2(x, y, k = 0) {
+  let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(seed + k, 2246822519);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+function vnoise(x, y, k = 0) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  const a = hash2(ix, iy, k), b = hash2(ix + 1, iy, k), c = hash2(ix, iy + 1, k), d = hash2(ix + 1, iy + 1, k);
+  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+}
+function fbm(x, y, k = 0) {
+  let a = 0.5, s = 0;
+  for (let i = 0; i < 4; i++) { s += a * vnoise(x, y, k + i * 7); x = x * 2.03 + 17.1; y = y * 2.03 + 17.1; a *= 0.5; }
+  return s;
+}
+function tileNoise(x, y, px, py, k) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  const m = (v, p) => ((v % p) + p) % p;
+  const x0 = m(ix, px), x1 = m(ix + 1, px), y0 = m(iy, py), y1 = m(iy + 1, py);
+  const a = hash2(x0, y0, k), b = hash2(x1, y0, k), c = hash2(x0, y1, k), d = hash2(x1, y1, k);
+  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+}
+function tileFbm(u, v, periods, k) {
+  let s = 0, w = 0.5, tw = 0;
+  for (let i = 0; i < periods.length; i++) { s += w * tileNoise(u * periods[i], v * periods[i], periods[i], periods[i], k + i * 13); tw += w; w *= 0.5; }
+  return s / tw;
+}
+function makeNoiseImage() {
+  const S = 256, d = new Uint8Array(S * S * 4);
+  const chans = [[8, 16, 32, 64], [8, 16, 32, 64], [8, 16, 32], [16, 32, 64, 128]];
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const u = x / S, v = y / S, i = (y * S + x) * 4;
+    for (let c = 0; c < 4; c++) d[i + c] = Math.min(Math.max((tileFbm(u, v, chans[c], 100 + c * 50) - 0.5) * 1.9 + 0.5, 0), 1) * 255;
+  }
+  return { S, d };
+}
+
+/* ---------------- Trường khoảng cách quanh biểu tượng (rạn cát) ---------------- */
+let W = innerWidth, H = innerHeight, Gw = 1, Gh = 1, NZ = null;
+function buildNoise() {
+  const N = Gw * Gh;
+  NZ = { wx: new Float32Array(N), wy: new Float32Array(N) };
+  for (let gy = 0; gy < Gh; gy++) for (let gx = 0; gx < Gw; gx++) {
+    const i = gy * Gw + gx, x = gx * STEP, y = gy * STEP;
+    NZ.wx[i] = fbm(x * 0.0028, y * 0.0028, 1) - 0.47;
+    NZ.wy[i] = fbm(x * 0.0028, y * 0.0028, 2) - 0.47;
+  }
+}
+function computeField(rects) {
+  const N = Gw * Gh, f1 = new Float32Array(N);
+  const sig = P.sigma, is1 = 1 / (sig * sig), wa = P.warp * 2.2, wmax = wa * 0.5;
+  for (const r of rects) {
+    const R = 5.5 * sig + Math.max(r.hw, r.hh) * 0.5 + wmax;
+    const gx0 = Math.max(0, Math.floor((r.cx - R) / STEP)), gx1 = Math.min(Gw - 1, Math.ceil((r.cx + R) / STEP));
+    const gy0 = Math.max(0, Math.floor((r.cy - R) / STEP)), gy1 = Math.min(Gh - 1, Math.ceil((r.cy + R) / STEP));
+    const chw = r.hw * 0.5, chh = r.hh * 0.5;
+    for (let gy = gy0; gy <= gy1; gy++) for (let gx = gx0; gx <= gx1; gx++) {
+      const i = gy * Gw + gx;
+      const qx = gx * STEP + NZ.wx[i] * wa, qy = gy * STEP + NZ.wy[i] * wa;
+      let dx = Math.abs(qx - r.cx) - chw, dy = Math.abs(qy - r.cy) - chh;
+      if (dx < 0) dx = 0; if (dy < 0) dy = 0;
+      f1[i] += Math.exp(-(dx * dx + dy * dy) * is1);
+    }
+  }
+  const c0 = Math.sqrt(-Math.log(0.35)), s = new Float32Array(N), fMin = Math.exp(-30);
+  for (let i = 0; i < N; i++) {
+    const g = Math.log(Math.max(f1[i], fMin));
+    s[i] = sig * (Math.sqrt(Math.max(-g, 0)) - c0) - sig * 0.6 * Math.max(g, 0);
+  }
+  return s;
+}
+function sampleArr(a, x, y) {
+  const fx = Math.min(Math.max(x / STEP, 0), Gw - 1.001), fy = Math.min(Math.max(y / STEP, 0), Gh - 1.001);
+  const ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy, i = iy * Gw + ix;
+  return (a[i] * (1 - tx) + a[i + 1] * tx) * (1 - ty) + (a[i + Gw] * (1 - tx) + a[i + Gw + 1] * tx) * ty;
+}
+
+/* ---------------- WebGL ---------------- */
+const cv = document.getElementById('art');
+const gl = cv.getContext('webgl2', { antialias: false });
+const VS = `#version 300 es
+void main() { vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2)); gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`;
+let PR = null;
+function program(fs) {
+  const mk = (type, src) => {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { console.error(gl.getShaderInfoLog(s)); throw new Error('shader'); }
+    return s;
+  };
+  const p = gl.createProgram();
+  gl.attachShader(p, mk(gl.VERTEX_SHADER, VS)); gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p);
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const nm = gl.getActiveUniform(p, i).name.replace(/\[0\]$/, ''); U[nm] = gl.getUniformLocation(p, nm); }
+  return { p, U };
+}
+gl.bindVertexArray(gl.createVertexArray());
+let noiseTex = null;
+function buildNoiseTex() {
+  const { S, d } = makeNoiseImage();
+  if (noiseTex) gl.deleteTexture(noiseTex);
+  noiseTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, noiseTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, S, S, 0, gl.RGBA, gl.UNSIGNED_BYTE, d);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+}
+const f32 = new Float32Array(1), u32 = new Uint32Array(f32.buffer);
+function toHalf(v) {
+  f32[0] = v; const x = u32[0];
+  const sign = (x >>> 16) & 0x8000, e = ((x >>> 23) & 0xff) - 112, m = x & 0x7fffff;
+  if (e <= 0) return sign; if (e >= 31) return sign | 0x7c00;
+  return sign | (e << 10) | (m >>> 13);
+}
+const ftex = [null, null];
+let fromI = 0, toI = 0, morphT0 = -1e9, morphDur = MORPH_MS, FA = null, FB = null, curMix = 1;
+function allocField() {
+  for (let i = 0; i < 2; i++) {
+    if (ftex[i]) gl.deleteTexture(ftex[i]);
+    ftex[i] = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, ftex[i]);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, Gw, Gh, 0, gl.RED, gl.HALF_FLOAT, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  }
+}
+function uploadField(i, s) {
+  const d = new Uint16Array(Gw * Gh);
+  for (let k = 0; k < d.length; k++) d[k] = toHalf(s[k]);
+  gl.bindTexture(gl.TEXTURE_2D, ftex[i]);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, Gw, Gh, gl.RED, gl.HALF_FLOAT, d);
+}
+let icons = [];
+const iconRects = () => icons.map(ic => ({ cx: ic.x + ic.w / 2, cy: ic.y + ic.h / 2, hw: ic.w / 2 - 4, hh: ic.h / 2 - 2 }));
+function commit(fromEmpty = false) {
+  const nf = computeField(iconRects());
+  const target = 1 - toI;
+  if (fromEmpty) { FA = computeField([]); uploadField(toI, FA); } else FA = FB;
+  FB = nf; uploadField(target, FB);
+  fromI = toI; toI = target;
+  morphT0 = performance.now(); morphDur = fromEmpty ? 2600 : MORPH_MS;
+  buildPlants();
+  needDraw = true;
+}
+const curS = (x, y) => FB ? sampleArr(FA, x, y) * (1 - curMix) + sampleArr(FB, x, y) * curMix : 999;
+const tgtS = (x, y) => FB ? sampleArr(FB, x, y) : 999;
+
+/* ---------------- Cảnh: đáy bể, rong ---------------- */
+const seedU = () => (((seed % 997) + 997) % 997) * 0.37;               // = uSeed trong shader
+const sandTop = x => H - TASKBAR - (46 + 18 * Math.sin(x * 0.0042 + seedU()) + 10 * Math.sin(x * 0.0113 + seedU() * 1.7 + 1.3));
+const isWater = (x, y) => y > SURF + 12 && y < sandTop(x) - 8 && curS(x, y) > 8;
+let plants = [];
+function buildPlants() {
+  // Rong trên mép trên của rạn cát (có nước phía trên) và dọc đáy bể; cố định theo seed
+  const out = [], dens = P.plants;
+  let k = 0;
+  const far = (x, y, d) => out.every(p => Math.hypot(p[0] - x, p[1] - y) > d);
+  if (dens > 0 && FB) {
+    for (let y = SURF + 40; y < H - TASKBAR - 60 && out.length < 18; y += 10) {
+      for (let x = 10; x < W - 10 && out.length < 18; x += 10) {
+        const s = tgtS(x, y);
+        if (Math.abs(s) > 3 || tgtS(x, y - 26) < 16 || tgtS(x, y + 10) > -4) continue;
+        if (hash2(x, y, 41) > dens * 0.55 || !far(x, y, 46)) continue;
+        out.push([x, y + 3, 30 + 34 * hash2(x, y, 42), (k++) * 1.37 + hash2(x, y, 43) * 50]);
+      }
+    }
+  }
+  for (let x = 24; x < W - 10 && dens > 0; x += 44) {
+    if (out.length >= 32) break;
+    if (hash2(x, 7, 44) > dens * 0.9) continue;
+    const xx = x + (hash2(x, 8, 45) - 0.5) * 20;
+    if (tgtS(xx, sandTop(xx) - 30) < 10) continue;                       // đừng mọc đè lên rạn sát đáy
+    out.push([xx, sandTop(xx) + 4, 60 + 80 * hash2(x, 9, 46), (k++) * 1.37 + hash2(x, 9, 47) * 50]);
+  }
+  plants = out.slice(0, 32);
+}
+
+/* ---------------- Cá vàng ---------------- */
+let fish = [], caught = 0, T = 0;
+const rand = Math.random;
+function turnToward(h, target, rate) { let d = target - h; d = Math.atan2(Math.sin(d), Math.cos(d)); return h + Math.sign(d) * Math.min(Math.abs(d), rate); }
+function spawnFish(fromEdge) {
+  for (let i = 0; i < 300; i++) {
+    const left = rand() < 0.5;
+    const x = fromEdge ? (left ? -40 : W + 40) : 60 + rand() * (W - 120);
+    const y = SURF + 70 + rand() * Math.max(10, H - TASKBAR - SURF - 220);
+    if (!fromEdge && !isWater(x, y)) continue;
+    if (fromEdge && y > sandTop(Math.max(0, Math.min(W, x))) - 70) continue;
+    const head = fromEdge ? (left ? 0 : Math.PI) + (rand() - 0.5) * 0.4 : (rand() < 0.5 ? 0 : Math.PI);
+    return { x, y, vx: Math.cos(head) * 20, vy: 0, head, ang: head, ph: rand() * 6, size: 1.35 + rand() * 0.5,
+      spots: rand(), alpha: fromEdge ? 1 : 0, mode: 'swim', t: 0, wh: rand() * 100, id: rand() * 50 };
+  }
+  return null;
+}
+function syncFish() {
+  const want = Math.max(1, Math.min(8, Math.round(P.fish)));
+  while (fish.length > want) fish.pop();
+  while (fish.length < want) { const f = spawnFish(false); if (!f) break; fish.push(f); }
+}
+function repel(f) {
+  // Vector đẩy cá khỏi rạn cát, đáy, mặt nước, mép màn hình (nhìn trước 60px)
+  const look = 60 * f.size, ax = f.x + Math.cos(f.head) * look, ay = f.y + Math.sin(f.head) * look;
+  let rx = 0, ry = 0;
+  const s = curS(ax, ay);
+  if (s < 50) {
+    const gx = curS(ax + 8, ay) - curS(ax - 8, ay), gy = curS(ax, ay + 8) - curS(ax, ay - 8);
+    const g = Math.hypot(gx, gy) || 1;
+    rx += gx / g * (50 - s) / 25; ry += gy / g * (50 - s) / 25;
+  }
+  const bot = sandTop(Math.max(0, Math.min(W, ax))) - 46 - ay;
+  if (bot < 0) ry -= Math.min(2, -bot / 25);
+  if (ay < SURF + 50) ry += Math.min(2, (SURF + 50 - ay) / 25);
+  if (ax < 40) rx += (40 - ax) / 30;
+  if (ax > W - 40) rx -= (ax - W + 40) / 30;
+  for (const o of fish) {                                             // giãn cách với cá khác
+    if (o === f || o.mode === 'gone') continue;
+    const dx = f.x - o.x, dy = f.y - o.y, d = Math.hypot(dx, dy), m = 70 * f.size;
+    if (d < m && d > 0.01) { rx += dx / d * (m - d) / m * 1.5; ry += dy / d * (m - d) / m * 1.5; }
+  }
+  return [rx, ry];
+}
+function stepFish(f, i, dt) {
+  if (f.mode !== 'caught') f.alpha = f.mode === 'gone' ? 0 : Math.min(1, f.alpha + dt * 1.2);
+  let dvx = 0, dvy = 0, k = 2.0;
+  const L = line;
+  if (f.mode === 'caught') {
+    f.t += dt;
+    f.vy += 520 * dt; f.x += f.vx * dt; f.y += f.vy * dt;
+    f.ang += dt * 7 * Math.sign(f.vx || 1); f.ph += dt * 20;
+    f.alpha = Math.max(0, 1 - Math.max(0, f.t - 0.45) / 0.35);
+    if (f.t > 0.8) { f.mode = 'gone'; f.t = 2.2; f.alpha = 0; }
+    return;
+  }
+  if (f.mode === 'gone') {
+    f.t -= dt;
+    if (f.t <= 0) { const n = spawnFish(true); if (n) fish[i] = n; }
+    return;
+  }
+  if (f.mode === 'swim') {
+    f.wh += dt * 0.35;
+    f.head += (vnoise(f.wh, i * 9.1 + f.id, 3) - 0.5) * 1.6 * dt;
+    const [rx, ry] = repel(f);
+    if (rx || ry) f.head = turnToward(f.head, Math.atan2(ry + Math.sin(f.head) * 0.3, rx + Math.cos(f.head) * 0.3), 1.8 * dt);
+    // Giữ cá bơi gần phương ngang
+    const sn = Math.sin(f.head);
+    if (Math.abs(sn) > 0.5) f.head = turnToward(f.head, Math.cos(f.head) >= 0 ? 0 : Math.PI, 0.6 * dt);
+    const sp = 26 * f.size * (0.45 + 0.9 * vnoise(f.wh * 0.6, i * 3.3 + f.id, 5));
+    dvx = Math.cos(f.head) * sp; dvy = Math.sin(f.head) * sp;
+  } else if (L && (f.mode === 'approach' || f.mode === 'nibble' || f.mode === 'bite')) {
+    const side = f.x < L.hx ? -1 : 1;                                   // cá ở bên trái thì quay sang phải
+    let tx = L.hx + side * 14 * f.size, ty = L.hy + (f.mode === 'bite' ? 7 : 1);
+    if (f.mode === 'nibble') tx += side * (2 + 3 * Math.abs(Math.sin(T * 6 + f.id)));
+    const dx = tx - f.x, dy = ty - f.y, d = Math.hypot(dx, dy);
+    const sp = Math.min(f.mode === 'approach' ? 48 * f.size : 60, d * 3);
+    dvx = d > 0.01 ? dx / d * sp : 0; dvy = d > 0.01 ? dy / d * sp : 0; k = 4;
+    f.head = side < 0 ? 0 : Math.PI;
+    if (f.mode === 'approach' && d < 5) { f.mode = 'nibble'; f.t = (1.2 + rand() * 2.2) / Math.max(0.3, P.eager); }
+    else if (f.mode === 'nibble') { f.t -= dt; if (f.t <= 0) { f.mode = 'bite'; f.t = 1.35; } }
+    else if (f.mode === 'bite') { f.t -= dt; if (f.t <= 0) { L.bait = false; flee(f); } }
+  } else if (f.mode === 'hooked' && L) {
+    const wig = Math.sin(T * 16) * 0.55;
+    f.ang = -Math.PI / 2 + wig; f.head = f.ang;
+    f.x = L.hx + Math.sin(T * 16) * 3; f.y = L.hy + 13 * f.size;
+    f.ph += dt * 18;
+    return;
+  } else if (f.mode === 'flee') {
+    f.t -= dt;
+    const sp = 140 * f.size;
+    dvx = Math.cos(f.head) * sp; dvy = Math.sin(f.head) * sp * 0.4; k = 5;
+    if (f.t <= 0) f.mode = 'swim';
+  } else f.mode = 'swim';
+  const a = Math.min(1, dt * k);
+  f.vx += (dvx - f.vx) * a; f.vy += (dvy - f.vy) * a;
+  f.x += f.vx * dt; f.y += f.vy * dt;
+  f.x = Math.max(-80, Math.min(W + 80, f.x)); f.y = Math.max(SURF + 16, Math.min(H - TASKBAR - 20, f.y));
+  const spd = Math.hypot(f.vx, f.vy);
+  if (spd > 4) f.ang = turnToward(f.ang, Math.atan2(f.vy * 0.6, f.vx), 4 * dt);
+  f.ph += dt * (4 + spd * 0.12);
+  f.bend = 0.5 + Math.min(1.2, spd / 50);
+}
+function flee(f) {
+  f.mode = 'flee'; f.t = 1.1;
+  const L = line;
+  if (L) f.head = f.x < L.hx ? Math.PI + (rand() - 0.5) * 0.6 : (rand() - 0.5) * 0.6;
+  addFx(f.x, f.y, 3);
+}
+
+/* ---------------- Câu cá ---------------- */
+let line = null;
+const fx = [];
+function addFx(x, y, kind) { if (fx.length >= 8) fx.shift(); fx.push({ x, y, age: 0, kind }); }
+function lineFish() { return fish.find(f => f.mode === 'approach' || f.mode === 'nibble' || f.mode === 'bite' || f.mode === 'hooked'); }
+function click(x, y) {
+  const L = line, lf = lineFish();
+  if (L && L.state === 'reel') return;
+  if (L && lf && lf.mode === 'bite') {                               // trúng nhịp: dính câu!
+    lf.mode = 'hooked'; L.state = 'reel'; L.bite = 0;
+    addFx(L.bx, SURF, 0);
+    return;
+  }
+  if (lf) flee(lf);                                                   // bấm sớm: cá giật mình bỏ chạy
+  if (!isWater(x, y)) {
+    if (L) L.state = 'up';
+    else if (curS(x, y) < 0 || y >= sandTop(x) - 8) addFx(x, y, 2);
+    for (const f of fish) if (f.mode === 'swim' && Math.hypot(f.x - x, f.y - y) < 160) { f.head = Math.atan2(f.y - y, f.x - x); flee(f); }
+    return;
+  }
+  line = { bx: x, hx: x, hy: SURF, ty: y, state: 'cast', bait: true, dip: 0, bite: 0, alpha: 0, idle: 0, t: 0 };
+  addFx(x, SURF, 0);
+}
+function stepLine(dt) {
+  const L = line;
+  if (!L) return;
+  L.alpha = Math.min(1, L.alpha + dt * 4);
+  const lf = lineFish();
+  let dipT = 0;
+  if (L.state === 'cast') {
+    L.hy = Math.min(L.ty, L.hy + 280 * dt);
+    if (L.hy >= L.ty) { L.state = 'wait'; L.t = (0.8 + rand() * 1.6) / Math.max(0.3, P.eager); }
+  } else if (L.state === 'wait') {
+    L.idle += dt;
+    if (!lf && L.bait) {
+      L.t -= dt;
+      if (L.t <= 0) {
+        let best = null, bd = 1e9;
+        for (const f of fish) if (f.mode === 'swim' && f.alpha > 0.9) { const d = Math.hypot(f.x - L.hx, f.y - L.hy); if (d < bd) { bd = d; best = f; } }
+        if (best) best.mode = 'approach'; else L.t = 1;
+      }
+    }
+    if (lf && lf.mode === 'nibble') dipT = 1.5 + 2.5 * Math.abs(Math.sin(T * 7));
+    if (lf && lf.mode === 'bite') dipT = 11;
+    if ((!L.bait && !lf && L.idle > 3) || L.idle > 45) L.state = 'up';
+  } else if (L.state === 'reel') {
+    dipT = 4;
+    L.hy -= 210 * dt;
+    if (L.hy <= SURF + 6) {
+      const f = lf;
+      if (f) { f.mode = 'caught'; f.t = 0; f.vx = (rand() - 0.5) * 120; f.vy = -330; }   // cá văng lên khỏi mặt nước
+      caught++;
+      addFx(L.bx, SURF, 1);
+      line = null;
+      return;
+    }
+  } else if (L.state === 'up') {
+    L.hy -= 320 * dt;
+    L.alpha = Math.max(0, Math.min(L.alpha, (L.hy - SURF) / 30 + 0.2));
+    if (L.hy <= SURF) { line = null; return; }
+  }
+  L.dip += (dipT - L.dip) * Math.min(1, dt * 10);
+  L.bite += ((lf && lf.mode === 'bite' ? 1 : 0) - L.bite) * Math.min(1, dt * 12);
+}
+
+/* ---------------- Vòng vẽ ---------------- */
+const U4 = n => new Float32Array(n * 4);
+const fishA = U4(8), fishB = U4(8), plantA = U4(32), fxA = U4(8);
+const T0 = performance.now();
+let lastT = 0, paused = false, needDraw = true;
+function resize() {
+  W = innerWidth; H = innerHeight;
+  const scale = PREVIEW ? 0.38 : Math.min(devicePixelRatio || 1, 0.72);
+  cv.width = Math.round(W * scale); cv.height = Math.round(H * scale); cv._scale = scale;
+  Gw = Math.ceil(W / STEP) + 2; Gh = Math.ceil(H / STEP) + 2;
+  buildNoise(); allocField();
+  FA = FB = null;                                                     // lưới đổi kích thước: dựng trường lại từ đầu
+  commit(true);
+  fish = []; syncFish();
+}
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (paused) {                                                      // tạm dừng vẫn vẽ lại khi cảnh vừa đổi
+    lastT = 0;
+    if (needDraw) { needDraw = false; curMix = 1; draw(now); }
+    return;
+  }
+  if (now - lastT < 40) return;                                       // ~25 khung/giây như các chủ đề khác
+  const dt = lastT ? Math.min((now - lastT) / 1000, 0.1) : 0.03;
+  lastT = now; T += dt;
+  const e = Math.min((now - morphT0) / morphDur, 1);
+  curMix = e < 0.5 ? 2 * e * e : 1 - Math.pow(-2 * e + 2, 2) / 2;
+  fish.forEach((f, i) => stepFish(f, i, dt));
+  stepLine(dt);
+  for (let i = fx.length - 1; i >= 0; i--) { fx[i].age += dt; if (fx[i].age > 2) fx.splice(i, 1); }
+  draw(now);
+  if (DEMO) document.getElementById('hud').textContent = caught ? `🐟 × ${caught}` : 'Bấm vào nước để thả câu';
+}
+function draw(now) {
+  if (!PR) return;
+  const { p, U } = PR;
+  gl.useProgram(p);
+  gl.viewport(0, 0, cv.width, cv.height);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, noiseTex);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, ftex[fromI]);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, ftex[toI]);
+  gl.uniform1i(U.uNoise, 0); gl.uniform1i(U.uFA, 1); gl.uniform1i(U.uFB, 2);
+  gl.uniform2f(U.uRes, cv.width / cv._scale, cv.height / cv._scale);
+  gl.uniform2f(U.uGrid, Gw, Gh);
+  gl.uniform1f(U.uScale, cv._scale);
+  gl.uniform1f(U.uSeed, seedU());
+  gl.uniform1f(U.uStep, STEP);
+  gl.uniform1f(U.uMix, curMix);
+  gl.uniform1f(U.uTime, (now - T0) / 1000);
+  gl.uniform1f(U.uDebug, 0);
+  gl.uniform1f(U.uLight, P.light); gl.uniform1f(U.uBubbles, P.bubbles); gl.uniform1f(U.uSurf, SURF);
+  fishA.fill(0); fishB.fill(0);
+  fish.forEach((f, i) => { fishA.set([f.x, f.y, f.ang, f.ph], i * 4); fishB.set([f.size, f.spots, f.bend || 0.6, f.alpha], i * 4); });
+  gl.uniform1f(U.uFishN, fish.length); gl.uniform4fv(U.uFish, fishA); gl.uniform4fv(U.uFishB, fishB);
+  plantA.fill(0); plants.forEach((pl, i) => plantA.set(pl, i * 4));
+  gl.uniform1f(U.uPlantN, plants.length); gl.uniform4fv(U.uPlant, plantA);
+  const L = line;
+  gl.uniform4f(U.uLine, L ? L.bx : 0, L ? L.hx : 0, L ? L.hy : 0, L ? L.alpha : 0);
+  gl.uniform4f(U.uLineB, L ? L.dip : 0, L && L.bait ? 1 : 0, L ? L.bite : 0, L && L.state === 'reel' ? 1 : 0);
+  fxA.fill(-1); fx.forEach((f, i) => fxA.set([f.x, f.y, f.age, f.kind], i * 4));
+  gl.uniform4fv(U.uFx, fxA);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+/* ---------------- Điều khiển từ host / settings ---------------- */
+function applySettings(v) {
+  let field = false, plantsChanged = false;
+  if (typeof v.seed === 'number' && v.seed !== seed) { seed = v.seed; buildNoiseTex(); buildNoise(); field = true; }
+  for (const k of Object.keys(DEFAULTS)) {
+    if (typeof v[k] !== 'number' || P[k] === v[k]) continue;
+    P[k] = v[k];
+    if (k === 'sigma' || k === 'warp') field = true;
+    if (k === 'plants') plantsChanged = true;
+  }
+  if (field && FB) commit();
+  else if (plantsChanged) buildPlants();
+  syncFish();
+  needDraw = true;
+}
+function drawGhosts() {
+  const box = document.getElementById('ghosts');
+  box.innerHTML = icons.map(ic => `<div class="ghost" style="left:${ic.x}px;top:${ic.y}px;width:${ic.w}px;height:${ic.h}px"><i></i><b></b></div>`).join('');
+}
+cv.addEventListener('pointerdown', e => click(e.clientX, e.clientY));
+addEventListener('resize', resize);
+
+fetch('aquarium.frag').then(r => r.text()).then(src => {
+  PR = program(src);
+  buildNoiseTex();
+  const g = document.createElement('div'); g.id = 'ghosts'; document.body.appendChild(g);
+  if (PREVIEW) document.body.classList.add('preview');
+  if (DEMO) {
+    document.body.classList.add('demo');
+    // Biểu tượng mẫu: 3 cột bên trái + một cụm nhỏ bên phải
+    for (let c = 0; c < 3; c++) for (let r = 0; r < 7; r++) icons.push({ x: 4 + c * 76, y: 46 + r * 100, w: 76, h: 96 });
+    for (const [c, r] of [[14, 1], [15, 1], [14, 2]]) icons.push({ x: 4 + c * 76, y: 46 + r * 100, w: 76, h: 96 });
+  }
+  resize();
+  if (DEMO) drawGhosts();
+  let first = true;
+  const handle = m => {
+    if (m.t === 'pause') { paused = !!m.v; return; }
+    if (m.t === 'settings') { applySettings(m.v || {}); return; }
+    if (m.t === 'reset') { applySettings(Object.assign({}, DEFAULTS, m.v || {})); return; }
+    if (m.t !== 'icons') return;
+    const k = window.devicePixelRatio || 1;
+    icons = m.vis ? m.r.map(([l, t, r, b]) => ({ x: l / k, y: t / k, w: (r - l) / k, h: (b - t) / k })) : [];
+    if (PREVIEW) drawGhosts();
+    commit(first); first = false;
+    fish.forEach((f, i) => { if (!isWater(f.x, f.y)) { const n = spawnFish(false); if (n) fish[i] = n; } });
+  };
+  if (PREVIEW) {
+    addEventListener('message', ev => { if (ev.source === parent) handle(typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data); });
+    parent.postMessage(JSON.stringify({ t: 'ready' }), '*');
+  } else if (WALL) {
+    const host = window.chrome && window.chrome.webview;
+    if (host) { host.addEventListener('message', ev => handle(JSON.parse(ev.data))); host.postMessage('ready'); }
+  }
+  requestAnimationFrame(frame);
+});
+</script>
+</body>
+</html>

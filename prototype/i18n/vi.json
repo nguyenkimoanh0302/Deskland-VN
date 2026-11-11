@@ -569,6 +569,83 @@
           "hint": "Tốc độ đung đưa của tán cây, lùm cây bụi và tốc độ gió thổi bay lá"
         }
       }
+    },
+    "stadium": {
+      "name": "Sân bóng sôi động",
+      "desc": "Sân vận động bóng đá nhìn từ trên cao với mặt cỏ sọc xanh mướt, hai đội chạy chỗ ban bật chuyền bóng và đuổi theo bóng mỗi khi bạn click chuột",
+      "groups": [
+        "Trận đấu trên sân",
+        "Sân vận động & Mặt cỏ"
+      ],
+      "params": {
+        "players": {
+          "label": "Cầu thủ mỗi đội",
+          "hint": "Số lượng cầu thủ mỗi bên (tính cả thủ môn), từ sân nhỏ 3v3 đến đủ đội hình 11v11",
+          "unit": "người"
+        },
+        "speed": {
+          "label": "Nhịp độ trận đấu",
+          "hint": "Tốc độ chạy chỗ chiến thuật của cầu thủ và tốc độ lăn của quả bóng"
+        },
+        "passFreq": {
+          "label": "Tần suất chuyền bóng",
+          "hint": "Nhỏ để cầu thủ rê dắt nhiều nhịp hơn, lớn để đá phối hợp một chạm nhanh"
+        },
+        "lighting": {
+          "label": "Ánh sáng sân vận động",
+          "hint": "Đổi giữa nắng ban ngày trong trẻo, nắng chiều vàng ấm hoặc 4 cột đèn pha buổi tối",
+          "options": [
+            "Ban ngày",
+            "Nắng chiều",
+            "Đèn pha đêm"
+          ]
+        },
+        "stripes": {
+          "label": "Độ đậm sọc cỏ",
+          "hint": "Độ tương phản giữa các dải cỏ cắt xen kẽ chuẩn sân vận động"
+        }
+      }
+    },
+    "aquarium": {
+      "name": "Bể cá vàng",
+      "desc": "Bể cá vàng ngập nắng nhìn qua thành kính: biểu tượng nằm trên rạn cát vàng, rong xanh đung đưa và bong bóng nổi lên. Bấm vào nước để thả câu, chờ phao giật thì bấm ngay để kéo cá vàng lên",
+      "groups": [
+        "Bể cá & câu cá",
+        "Cảnh vật trong bể",
+        "Quanh biểu tượng"
+      ],
+      "params": {
+        "fish": {
+          "label": "Số cá vàng",
+          "hint": "Số chú cá vàng bơi trong bể; câu được con nào sẽ có con mới bơi vào",
+          "unit": "con"
+        },
+        "eager": {
+          "label": "Cá háu ăn",
+          "hint": "Cá tới rỉa mồi và cắn câu nhanh hay chậm sau khi bạn bấm vào nước để thả câu"
+        },
+        "plants": {
+          "label": "Rong rêu",
+          "hint": "Mật độ rong xanh mọc trên rạn cát và dưới đáy bể"
+        },
+        "bubbles": {
+          "label": "Bong bóng",
+          "hint": "Lượng bong bóng nổi lên từ các khóm rong"
+        },
+        "light": {
+          "label": "Tia nắng",
+          "hint": "Độ sáng của tia nắng rọi xiên và vệt sáng khúc xạ trên cát"
+        },
+        "sigma": {
+          "label": "Độ rộng rạn cát",
+          "hint": "Rạn cát vàng ôm lấy các biểu tượng rộng bao nhiêu",
+          "unit": "px"
+        },
+        "warp": {
+          "label": "Độ uốn rạn cát",
+          "hint": "Mép rạn cát thẳng gọn hay uốn lượn tự nhiên"
+        }
+      }
     }
   }
 }

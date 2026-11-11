@@ -568,6 +568,83 @@
           "hint": "How strongly the trees, bushes, and falling leaves sway in the wind"
         }
       }
+    },
+    "stadium": {
+      "name": "Football Stadium",
+      "desc": "An aerial top-down football stadium with striped turf where two teams pass and move — click anywhere on the pitch to send the ball there as players sprint after it",
+      "groups": [
+        "Match & Players",
+        "Stadium & Turf"
+      ],
+      "params": {
+        "players": {
+          "label": "Players per team",
+          "hint": "Squad size per side including goalkeeper, from 3v3 mini-pitch up to full 11v11",
+          "unit": ""
+        },
+        "speed": {
+          "label": "Match tempo",
+          "hint": "Running speed of the players and pace of the ball across the turf"
+        },
+        "passFreq": {
+          "label": "Passing frequency",
+          "hint": "Lower for longer solo dribbles, higher for quick one-touch passing"
+        },
+        "lighting": {
+          "label": "Stadium lighting",
+          "hint": "Switch between bright daylight, warm golden sunset, or evening floodlights",
+          "options": [
+            "Daylight",
+            "Golden Sunset",
+            "Night Floodlights"
+          ]
+        },
+        "stripes": {
+          "label": "Turf stripe contrast",
+          "hint": "Contrast between alternating mowed grass bands across the pitch"
+        }
+      }
+    },
+    "aquarium": {
+      "name": "Goldfish Bowl",
+      "desc": "A sunlit goldfish bowl seen through the glass: your icons rest on golden sand reefs with swaying weeds and bubbles. Click the water to cast a line, wait for the float to jerk, then click to reel a goldfish in",
+      "groups": [
+        "Goldfish & fishing",
+        "Inside the bowl",
+        "Around icons"
+      ],
+      "params": {
+        "fish": {
+          "label": "Goldfish",
+          "hint": "How many goldfish swim in the bowl; a new one swims in after each catch",
+          "unit": "fish"
+        },
+        "eager": {
+          "label": "Hungry fish",
+          "hint": "How quickly a fish comes to nibble and bite after you cast"
+        },
+        "plants": {
+          "label": "Water weeds",
+          "hint": "How many green weeds grow on the sand reefs and the bowl floor"
+        },
+        "bubbles": {
+          "label": "Bubbles",
+          "hint": "How many bubbles rise from the weeds"
+        },
+        "light": {
+          "label": "Sun rays",
+          "hint": "Strength of the slanted sun rays and caustic light on the sand"
+        },
+        "sigma": {
+          "label": "Reef width",
+          "hint": "How far the golden sand reef extends around your icons",
+          "unit": "px"
+        },
+        "warp": {
+          "label": "Reef curves",
+          "hint": "Straight, tidy reef edges or natural winding ones"
+        }
+      }
     }
   }
 }

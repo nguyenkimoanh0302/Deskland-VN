@@ -144,6 +144,22 @@ pub static CAT_HILL: [ParamDef; 4] = [
     p("leaves", "Mật độ lá bay", 0.0, 1.0, 0.05, 0.65, "", Fmt::Pct),
     p("wind", "Sức gió trên đồi", 0.0, 3.0, 0.05, 1.0, "", Fmt::Mul),
 ];
+pub static STADIUM: [ParamDef; 5] = [
+    p("players", "Cầu thủ mỗi đội", 3.0, 11.0, 1.0, 6.0, "người", Fmt::Num),
+    p("speed", "Nhịp độ trận đấu", 0.4, 2.5, 0.05, 1.0, "", Fmt::Mul),
+    p("passFreq", "Tần suất chuyền bóng", 0.4, 2.5, 0.05, 1.0, "", Fmt::Mul),
+    p("lighting", "Ánh sáng sân (0-2)", 0.0, 2.0, 1.0, 0.0, "", Fmt::Num),
+    p("stripes", "Độ đậm sọc cỏ", 0.0, 1.0, 0.05, 0.65, "", Fmt::Pct),
+];
+pub static AQUARIUM: [ParamDef; 7] = [
+    p("fish", "Số cá vàng", 1.0, 8.0, 1.0, 4.0, "con", Fmt::Num),
+    p("eager", "Cá háu ăn", 0.4, 2.5, 0.05, 1.0, "", Fmt::Mul),
+    p("plants", "Rong rêu", 0.0, 1.0, 0.05, 0.6, "", Fmt::Pct),
+    p("bubbles", "Bong bóng", 0.0, 1.0, 0.05, 0.5, "", Fmt::Pct),
+    p("light", "Tia nắng", 0.0, 1.0, 0.05, 0.6, "", Fmt::Pct),
+    p("sigma", "Độ rộng rạn cát", 40.0, 200.0, 1.0, 80.0, "px", Fmt::Num),
+    p("warp", "Độ uốn rạn cát", 0.0, 80.0, 1.0, 30.0, "", Fmt::Num),
+];
 const IDLE_CHOICES: [u32; 8] = [1, 2, 3, 5, 10, 15, 30, 60];
 
 fn defs(theme: &str) -> &'static [ParamDef] {
@@ -157,6 +173,8 @@ fn defs(theme: &str) -> &'static [ParamDef] {
         "mocchau" => &MOCCHAU,
         "tet-sakura" => &TET_SAKURA,
         "cat-hill" => &CAT_HILL,
+        "stadium" => &STADIUM,
+        "aquarium" => &AQUARIUM,
         _ => &BEACH,
     }
 }
@@ -327,7 +345,8 @@ pub fn open(state: &State) {
         wc.lpfnWndProc = Some(proc_);
         wc.hInstance = GetModuleHandleW(std::ptr::null());
         wc.hCursor = LoadCursorW(std::ptr::null_mut(), IDC_ARROW);
-        wc.hIcon = LoadIconW(std::ptr::null_mut(), IDI_APPLICATION);
+        wc.hIcon = crate::app_icon(GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON));
+        wc.hIconSm = crate::app_icon(GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON));
         wc.hbrBackground = (COLOR_WINDOW + 1) as usize as HBRUSH;
         wc.lpszClassName = cls.as_ptr();
         RegisterClassExW(&wc); // lần sau trả lỗi "đã có" - không sao

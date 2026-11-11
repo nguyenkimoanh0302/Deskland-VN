@@ -1,5 +1,5 @@
-//! deskland-rs: bản Rust native (1 tiến trình, OpenGL) của Deskland - spike đo hiệu năng.
-//! Chạy:   deskland-rs.exe [--theme beach|meadow] [--fps 20]
+//! deskland-rs: bản Rust native (1 tiến trình, OpenGL 3.3) của Deskland — 12 chủ đề tương tác thích ứng.
+//! Chạy:   deskland-rs.exe [--theme <id>] [--fps 20] [--settings]
 //! Thoát:  deskland-rs.exe --quit   (hoặc menu khay hệ thống)
 
 #![windows_subsystem = "windows"]
@@ -10,6 +10,7 @@ mod lock;
 mod settings;
 mod web;
 mod themes {
+    pub mod aquarium;
     pub mod beach;
     pub mod cat_hill;
     pub mod lake;
@@ -19,6 +20,7 @@ mod themes {
     pub mod ocean;
     pub mod rainforest;
     pub mod sky;
+    pub mod stadium;
     pub mod tet_sakura;
 }
 mod wgl;
@@ -92,6 +94,8 @@ pub const THEMES: &[(&str, &str, usize)] = &[
     ("mocchau", "Hoa mận", 108),
     ("tet-sakura", "Hoa anh đào Tết", 109),
     ("cat-hill", "Đồi mèo nắng ấm", 110),
+    ("stadium", "Sân bóng sôi động", 111),
+    ("aquarium", "Bể cá vàng", 113),
 ];
 
 pub fn canonical_theme(id: &str) -> Option<&'static str> {
@@ -100,6 +104,8 @@ pub fn canonical_theme(id: &str) -> Option<&'static str> {
         "plum-blossoms" | "plum_blossoms" | "plum" => Some("mocchau"),
         "tet_sakura" => Some("tet-sakura"),
         "cat_hill" => Some("cat-hill"),
+        "football" | "soccer" | "pitch" => Some("stadium"),
+        "fish" | "fishing" | "goldfish" | "fishbowl" => Some("aquarium"),
         other => THEMES.iter().find(|&&(tid, _, _)| tid == other).map(|&(tid, _, _)| tid),
     }
 }
@@ -111,6 +117,25 @@ pub fn theme_cmd(id: &str) -> usize {
 
 pub fn cmd_theme(cmd: usize) -> Option<&'static str> {
     THEMES.iter().find(|&&(_, _, c)| c == cmd).map(|&(tid, _, _)| tid)
+}
+
+/// Nạp biểu tượng ứng dụng nhúng trong exe (resource ID = 1) theo kích thước DPI mong muốn.
+pub fn app_icon(cx: i32, cy: i32) -> HICON {
+    unsafe {
+        let h = LoadImageW(
+            GetModuleHandleW(std::ptr::null()),
+            1usize as *const u16,
+            IMAGE_ICON,
+            cx,
+            cy,
+            LR_DEFAULTCOLOR | LR_SHARED,
+        ) as HICON;
+        if !h.is_null() {
+            h
+        } else {
+            LoadIconW(std::ptr::null_mut(), IDI_APPLICATION)
+        }
+    }
 }
 
 thread_local! {
@@ -193,10 +218,13 @@ unsafe extern "system" fn msg_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRE
                 SetMenuDefaultItem(menu, CMD_SETTINGS as u32, 0);
                 AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
                 let cur = CURRENT_THEME.with(|c| c.get());
-                let flag = |id: usize| if cur == id { MF_STRING | MF_CHECKED } else { MF_STRING };
-                for &(_, label, cmd_id) in THEMES {
-                    AppendMenuW(menu, flag(cmd_id), cmd_id, wide(label).as_ptr());
-                }
+                let cur_label = THEMES
+                    .iter()
+                    .find(|&&(_, _, cmd_id)| cmd_id == cur)
+                    .map(|&(_, label, _)| label)
+                    .unwrap_or("Bãi biển");
+                let cur_text = format!("Chủ đề: {cur_label}");
+                AppendMenuW(menu, MF_STRING | MF_CHECKED, CMD_SETTINGS, wide(&cur_text).as_ptr());
                 AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
                 // Màn hình khóa: chỉ dùng khóa thật của Windows
                 AppendMenuW(menu, MF_STRING, CMD_LOCK, wide("Khóa máy ngay (khóa Windows)").as_ptr());
@@ -435,7 +463,9 @@ fn web_init(app: &App) -> serde_json::Value {
                 "rainforest",
                 "mocchau",
                 "tet-sakura",
-                "cat-hill"
+                "cat-hill",
+                "stadium",
+                "aquarium"
             ],
             // Chưa port: cây dừa, cậu bé, mèo -> ẩn thanh trượt, xem trước cũng tắt cho giống desktop
             "hide": ["palms", "showBoy", "showCat"],
@@ -587,6 +617,8 @@ impl App {
             "mocchau" => Box::new(themes::mocchau::PlumBlossoms::new(gl, w, h, buf_w, buf_h, scale, seed, themes::mocchau::Params::from_json(p), rs, now)),
             "tet-sakura" => Box::new(themes::tet_sakura::TetSakura::new(gl, w, h, buf_w, buf_h, scale, seed, themes::tet_sakura::Params::from_json(p), rs, now)),
             "cat-hill" => Box::new(themes::cat_hill::CatHill::new(gl, w, h, buf_w, buf_h, scale, seed, themes::cat_hill::Params::from_json(p), rs, now)),
+            "stadium" => Box::new(themes::stadium::Stadium::new(gl, w, h, buf_w, buf_h, scale, seed, themes::stadium::Params::from_json(p), rs, now)),
+            "aquarium" => Box::new(themes::aquarium::Aquarium::new(gl, w, h, buf_w, buf_h, scale, seed, themes::aquarium::Params::from_json(p), rs, now)),
             _ => Box::new(themes::beach::Beach::new(gl, w, h, buf_w, buf_h, scale, seed, themes::beach::Params::from_json(p), rs, now)),
         }
     }
@@ -606,6 +638,8 @@ impl App {
             "mocchau" => themes::mocchau::FRAG,
             "tet-sakura" => themes::tet_sakura::FRAG,
             "cat-hill" => themes::cat_hill::FRAG,
+            "stadium" => themes::stadium::FRAG,
+            "aquarium" => themes::aquarium::FRAG,
             _ => themes::beach::FRAG,
         };
         let t0 = Instant::now();
@@ -1196,7 +1230,7 @@ fn main() {
     nid.uID = 1;
     nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     nid.uCallbackMessage = WM_TRAY;
-    nid.hIcon = unsafe { LoadIconW(std::ptr::null_mut(), IDI_APPLICATION) };
+    nid.hIcon = unsafe { app_icon(GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON)) };
     for (i, c) in "Deskland (Rust native)".encode_utf16().enumerate() {
         nid.szTip[i] = c;
     }

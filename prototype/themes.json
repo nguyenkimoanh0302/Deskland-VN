@@ -917,6 +917,174 @@
           ]
         }
       ]
+    },
+    {
+      "id": "stadium",
+      "adaptive": false,
+      "name": "Sân bóng sôi động",
+      "desc": "Sân vận động bóng đá nhìn từ trên cao với mặt cỏ sọc xanh mướt, hai đội chạy chỗ ban bật chuyền bóng và đuổi theo bóng mỗi khi bạn click chuột",
+      "page": "stadium.html",
+      "status": "ready",
+      "product": "free",
+      "thumb": "url(thumbs/stadium.jpg) center / cover no-repeat, linear-gradient(90deg, #1b3446 0%, #c0583c 8%, #399e44 12%, #48b24f 50%, #399e44 88%, #c0583c 92%, #1b3446 100%)",
+      "groups": [
+        {
+          "name": "Trận đấu trên sân",
+          "params": [
+            {
+              "key": "players",
+              "label": "Cầu thủ mỗi đội",
+              "hint": "Số lượng cầu thủ mỗi bên (tính cả thủ môn), từ sân nhỏ 3v3 đến đủ đội hình 11v11",
+              "min": 3,
+              "max": 11,
+              "step": 1,
+              "default": 6,
+              "unit": "người"
+            },
+            {
+              "key": "speed",
+              "label": "Nhịp độ trận đấu",
+              "hint": "Tốc độ chạy chỗ chiến thuật của cầu thủ và tốc độ lăn của quả bóng",
+              "min": 0.4,
+              "max": 2.5,
+              "step": 0.05,
+              "default": 1,
+              "format": "times"
+            },
+            {
+              "key": "passFreq",
+              "label": "Tần suất chuyền bóng",
+              "hint": "Nhỏ để cầu thủ rê dắt nhiều nhịp hơn, lớn để đá phối hợp một chạm nhanh",
+              "min": 0.4,
+              "max": 2.5,
+              "step": 0.05,
+              "default": 1,
+              "format": "times"
+            }
+          ]
+        },
+        {
+          "name": "Sân vận động & Mặt cỏ",
+          "params": [
+            {
+              "key": "lighting",
+              "label": "Ánh sáng sân vận động",
+              "hint": "Đổi giữa nắng ban ngày trong trẻo, nắng chiều vàng ấm hoặc 4 cột đèn pha buổi tối",
+              "options": [
+                "Ban ngày",
+                "Nắng chiều",
+                "Đèn pha đêm"
+              ],
+              "default": 0
+            },
+            {
+              "key": "stripes",
+              "label": "Độ đậm sọc cỏ",
+              "hint": "Độ tương phản giữa các dải cỏ cắt xen kẽ chuẩn sân vận động",
+              "min": 0,
+              "max": 1,
+              "step": 0.05,
+              "default": 0.65,
+              "format": "percent"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "aquarium",
+      "name": "Bể cá vàng",
+      "desc": "Bể cá vàng ngập nắng nhìn qua thành kính: biểu tượng nằm trên rạn cát vàng, rong xanh đung đưa và bong bóng nổi lên. Bấm vào nước để thả câu, chờ phao giật thì bấm ngay để kéo cá vàng lên",
+      "page": "aquarium.html",
+      "status": "ready",
+      "product": "free",
+      "thumb": "url(thumbs/aquarium.jpg) center / cover no-repeat, linear-gradient(180deg, #8fd0ef 0%, #2a7fc4 45%, #154f86 80%, #d9a65c 100%)",
+      "groups": [
+        {
+          "name": "Bể cá & câu cá",
+          "params": [
+            {
+              "key": "fish",
+              "label": "Số cá vàng",
+              "hint": "Số chú cá vàng bơi trong bể; câu được con nào sẽ có con mới bơi vào",
+              "min": 1,
+              "max": 8,
+              "step": 1,
+              "default": 4,
+              "unit": "con"
+            },
+            {
+              "key": "eager",
+              "label": "Cá háu ăn",
+              "hint": "Cá tới rỉa mồi và cắn câu nhanh hay chậm sau khi bạn bấm vào nước để thả câu",
+              "min": 0.4,
+              "max": 2.5,
+              "step": 0.05,
+              "default": 1,
+              "format": "times"
+            }
+          ]
+        },
+        {
+          "name": "Cảnh vật trong bể",
+          "params": [
+            {
+              "key": "plants",
+              "label": "Rong rêu",
+              "hint": "Mật độ rong xanh mọc trên rạn cát và dưới đáy bể",
+              "min": 0,
+              "max": 1,
+              "step": 0.05,
+              "default": 0.6,
+              "format": "percent"
+            },
+            {
+              "key": "bubbles",
+              "label": "Bong bóng",
+              "hint": "Lượng bong bóng nổi lên từ các khóm rong",
+              "min": 0,
+              "max": 1,
+              "step": 0.05,
+              "default": 0.5,
+              "format": "percent"
+            },
+            {
+              "key": "light",
+              "label": "Tia nắng",
+              "hint": "Độ sáng của tia nắng rọi xiên và vệt sáng khúc xạ trên cát",
+              "min": 0,
+              "max": 1,
+              "step": 0.05,
+              "default": 0.6,
+              "format": "percent"
+            }
+          ]
+        },
+        {
+          "name": "Quanh biểu tượng",
+          "params": [
+            {
+              "key": "sigma",
+              "label": "Độ rộng rạn cát",
+              "hint": "Rạn cát vàng ôm lấy các biểu tượng rộng bao nhiêu",
+              "min": 40,
+              "max": 200,
+              "step": 1,
+              "default": 80,
+              "unit": "px"
+            },
+            {
+              "key": "warp",
+              "label": "Độ uốn rạn cát",
+              "hint": "Mép rạn cát thẳng gọn hay uốn lượn tự nhiên",
+              "min": 0,
+              "max": 80,
+              "step": 1,
+              "default": 30
+            }
+          ]
+        }
+      ]
     }
   ]
 }

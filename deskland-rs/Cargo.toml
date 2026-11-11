@@ -3,7 +3,7 @@ name = "deskland-rs"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-only"
-description = "Deskland native (Rust + OpenGL) - spike đo hiệu năng cho 2 chủ đề Bãi biển và Thảo nguyên"
+description = "Deskland native (Rust + OpenGL) - hình nền động tương tác thích ứng 12 chủ đề cho Windows"
 
 [dependencies]
 glow = "0.14"
